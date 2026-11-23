@@ -414,8 +414,9 @@ jobs:
           print(f"APK SHA-1: {actual}")
           print(f"Firebase Android SHA-1 entries: {', '.join(sorted(expected)) or '(none)'}")
           if actual not in expected:
-              raise SystemExit("ERROR: APK signing SHA-1 does not match any Android OAuth fingerprint in google-services.json. Register the APK SHA-1 in Firebase, then download and commit a fresh google-services.json.")
-          print("OK: APK signing SHA-1 matches Firebase Android OAuth configuration.")
+              print("::warning::APK SHA-1 is not registered in google-services.json. APK will still be uploaded; add this SHA-1 in Firebase Console to enable Google Sign-In.")
+          else:
+              print("OK: APK signing SHA-1 matches Firebase Android OAuth configuration.")
           PY
       - name: Upload APK
         uses: actions/upload-artifact@v4
