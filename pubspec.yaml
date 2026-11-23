@@ -41,6 +41,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/images/kalbar_kite_login.jpg
+    - assets/images/kalbar_kite_login.png
     - assets/images/Festival Budaya Katulistiwa di Pontianak.png
     - assets/audio/Generated Audio November 20, 2026 - 11_04PM.wav
