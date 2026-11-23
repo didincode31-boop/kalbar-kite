@@ -2172,7 +2172,7 @@ class _KalbarAuthHeader extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 Image.asset(
-                  'assets/images/Festival Budaya Katulistiwa di Pontianak.png',
+                  'assets/images/kalbar_kite_login.png',
                   fit: BoxFit.cover,
                   filterQuality: FilterQuality.high,
                 ),
