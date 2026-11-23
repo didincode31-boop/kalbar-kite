@@ -2197,48 +2197,7 @@ class _KalbarAuthHeader extends StatelessWidget {
                     ),
                   ),
                 ),
-                Positioned(
-                top: 27,
-                child: Column(children: [
-                  Container(
-                    width: 76, height: 76,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .92),
-                      borderRadius: BorderRadius.circular(25),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: logoUrl.startsWith('https://')
-                      ? CachedNetworkImage(
-                          imageUrl: logoUrl,
-                          fit: BoxFit.contain,
-                          memCacheWidth: 240,
-                          fadeInDuration: const Duration(milliseconds: 150),
-                          placeholder: (_, __) => const Icon(CupertinoIcons.paperplane_fill, color: Color(0xFF0878F9), size: 43),
-                          errorWidget: (_, __, ___) => const Icon(CupertinoIcons.paperplane_fill, color: Color(0xFF0878F9), size: 43),
-                        )
-                      : const Icon(CupertinoIcons.paperplane_fill, color: Color(0xFF0878F9), size: 43),
-                  ),
-                  const SizedBox(height: 9),
-                  Text(
-                    title,
-                    style: GoogleFonts.fredoka(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                      shadows: const [
-                        Shadow(color: Color(0x990B1930), blurRadius: 12, offset: Offset(0, 2)),
-                        Shadow(color: Color(0x660B1930), blurRadius: 3, offset: Offset(0, 1)),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 7),
-                    decoration: BoxDecoration(color: const Color(0xFFE6F1FF), borderRadius: BorderRadius.circular(30)),
-                    child: Text(subtitle, style: GoogleFonts.fredoka(fontSize: 13.5, color: const Color(0xFF0878F9), fontWeight: FontWeight.w500)),
-                  ),
-                ]),
-              ),
+
             ],
           ),
           ),
