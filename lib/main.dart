@@ -1644,7 +1644,7 @@ class _PostLoginSplashState extends State<_PostLoginSplash> {
           children: [
             Positioned.fill(
               child: Image.asset(
-                'assets/images/kalbar_kite_splash.png',
+                'assets/images/Festival Budaya Katulistiwa di Pontianak.png',
                 fit: BoxFit.cover,
                 filterQuality: FilterQuality.high,
                 errorBuilder: (_, __, ___) => DecoratedBox(
@@ -1665,9 +1665,9 @@ class _PostLoginSplashState extends State<_PostLoginSplash> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.black.withValues(alpha: .10),
                       Colors.transparent,
-                      Colors.black.withValues(alpha: .30),
+                      Colors.transparent,
+                      Colors.transparent,
                     ],
                     stops: const [0, .48, 1],
                   ),
