@@ -1,0 +1,27 @@
+name: Export Kalbar Kite Source ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - kalbar-kite-profile-follow-ui
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create source ZIP
+        run: git archive --format=zip --output=Kalbar-Kite-Source.zip HEAD
+      - name: Upload source ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kalbar-Kite-Source
+          path: Kalbar-Kite-Source.zip
+          if-no-files-found: error

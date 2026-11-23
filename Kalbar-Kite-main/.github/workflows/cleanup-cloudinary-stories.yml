@@ -1,0 +1,90 @@
+name: Clean expired KalbarKu stories from Cloudinary
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete expired story images and videos
+        env:
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import base64
+          import urllib.parse
+          import urllib.request
+          import datetime
+          import sys
+
+          cloud = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
+          key = os.environ.get("CLOUDINARY_API_KEY", "").strip()
+          secret = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+
+          if not all((cloud, key, secret)):
+              sys.exit(
+                  "Missing Cloudinary GitHub Actions secrets. Check the three "
+                  "CLOUDINARY_* repository secrets."
+              )
+
+          auth = base64.b64encode(f"{key}:{secret}".encode()).decode()
+          headers = {
+              "Authorization": f"Basic {auth}",
+              "Content-Type": "application/x-www-form-urlencoded",
+          }
+          cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=24)
+
+          # Inspect image and video assets under the Story folder.
+          for resource_type in ("image", "video"):
+              cursor = None
+              expired = []
+
+              while True:
+                  params = {"prefix": "kalbarku/stories/", "max_results": "500"}
+                  if cursor:
+                      params["next_cursor"] = cursor
+
+                  url = (
+                      f"https://api.cloudinary.com/v1_1/{cloud}/resources/"
+                      f"{resource_type}/upload?{urllib.parse.urlencode(params)}"
+                  )
+                  request = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      data = json.loads(response.read())
+
+                  for asset in data.get("resources", []):
+                      created = datetime.datetime.fromisoformat(
+                          asset["created_at"].replace("Z", "+00:00")
+                      )
+                      if created < cutoff:
+                          expired.append(asset["public_id"])
+
+                  cursor = data.get("next_cursor")
+                  if not cursor:
+                      break
+
+              # Cloudinary Admin API accepts up to 100 public IDs per delete request.
+              for start in range(0, len(expired), 100):
+                  batch = expired[start:start + 100]
+                  body = urllib.parse.urlencode(
+                      [("public_ids[]", public_id) for public_id in batch]
+                  ).encode()
+                  request = urllib.request.Request(
+                      f"https://api.cloudinary.com/v1_1/{cloud}/resources/{resource_type}/upload",
+                      data=body,
+                      headers=headers,
+                      method="DELETE",
+                  )
+                  with urllib.request.urlopen(request, timeout=60) as response:
+                      result = json.loads(response.read())
+                      print(f"{resource_type} delete response: {json.dumps(result)}")
+
+              print(f"Deleted {len(expired)} expired {resource_type} story assets.")
+          PY

@@ -1,0 +1,574 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------
+    // Shared helpers
+    // ------------------------------------------------------------
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && (
+          request.auth.token.admin == true
+          || (
+            exists(/databases/$(database)/documents/profiles/$(request.auth.uid))
+            && get(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.role == 'admin'
+          )
+        );
+    }
+
+    function mutualFriends(peerUid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/follows/$(request.auth.uid + '_' + peerUid))
+        && exists(/databases/$(database)/documents/follows/$(peerUid + '_' + request.auth.uid));
+    }
+
+    function validDonorContact(postId, peerUid) {
+      return postId is string
+        && exists(/databases/$(database)/documents/blood_posts/$(postId))
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.post_type == 'donor'
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.status == 'approved'
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.show_in_list == true
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.ownerUid == peerUid
+        && peerUid != request.auth.uid;
+    }
+
+    function validDonorContactForChat(postId, participants) {
+      return postId is string
+        && participants is list
+        && participants.size() == 2
+        && request.auth.uid in participants
+        && exists(/databases/$(database)/documents/blood_posts/$(postId))
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.post_type == 'donor'
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.status == 'approved'
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.show_in_list == true
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.ownerUid in participants
+        && get(/databases/$(database)/documents/blood_posts/$(postId)).data.ownerUid != request.auth.uid;
+    }
+
+    function chatPeer(chatData) {
+      return chatData.participants[0] == request.auth.uid
+        ? chatData.participants[1]
+        : chatData.participants[0];
+    }
+
+    function isChatParticipant() {
+      return signedIn()
+        && resource.data.participants is list
+        && request.auth.uid in resource.data.participants;
+    }
+
+    function isParentChatParticipant(chatId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/chats/$(chatId))
+        && get(/databases/$(database)/documents/chats/$(chatId)).data.participants is list
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+    }
+
+    // ------------------------------------------------------------
+    // App configuration and dictionary
+    // ------------------------------------------------------------
+    match /app_config/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /dictionary/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // User profiles
+    // ------------------------------------------------------------
+    match /profiles/{uid} {
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.role == 'member'
+        && !request.resource.data.keys().hasAny(['ownerVerified', 'verifiedAt']);
+
+      allow read: if signedIn()
+        && (request.auth.uid == uid || isAdmin());
+
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          // Older member documents may predate uid/role fields. Allow the
+          // owner to repair those missing fields without changing an existing role.
+          && request.resource.data.uid == uid
+          && resource.data.get('uid', uid) == uid
+          && request.resource.data.get('role', 'member') == resource.data.get('role', 'member')
+          && request.resource.data.get('ownerVerified', false) == resource.data.get('ownerVerified', false)
+          && request.resource.data.get('verifiedAt', null) == resource.data.get('verifiedAt', null)
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /public_profiles/{uid} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && !request.resource.data.keys().hasAny(['ownerVerified', 'verifiedAt']);
+
+      allow update: if isAdmin()
+        || (signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == uid
+          // Verification is admin-owned. A member may update public profile
+          // fields, but cannot change either verification field.
+          && request.resource.data.get('ownerVerified', false)
+            == resource.data.get('ownerVerified', false)
+          && request.resource.data.get('verifiedAt', null)
+            == resource.data.get('verifiedAt', null));
+
+      allow delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // Follow relationships. Document ID: followerUid_followingUid
+    // ------------------------------------------------------------
+    match /follows/{followId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['followerUid', 'followingUid', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['followerUid', 'followingUid', 'createdAt'])
+        && request.resource.data.followerUid == request.auth.uid
+        && request.resource.data.followingUid is string
+        && request.resource.data.followingUid != request.auth.uid
+        && followId == request.auth.uid + '_' + request.resource.data.followingUid
+        && exists(/databases/$(database)/documents/public_profiles/$(request.resource.data.followingUid));
+
+      allow delete: if signedIn()
+        && resource.data.followerUid == request.auth.uid
+        && followId == request.auth.uid + '_' + resource.data.followingUid;
+
+      allow update: if false;
+    }
+
+    // ------------------------------------------------------------
+    // Stories and story interactions
+    // ------------------------------------------------------------
+    match /stories/{storyId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt < request.time + duration.value(25, 'h');
+
+      allow update: if false;
+
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.ownerUid == request.auth.uid);
+
+      match /likes/{userId} {
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid;
+
+        allow delete: if signedIn()
+          && (
+            request.auth.uid == userId
+            || get(/databases/$(database)/documents/stories/$(storyId)).data.ownerUid == request.auth.uid
+          );
+        allow update: if false;
+      }
+
+      match /replies/{replyId} {
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+          && request.resource.data.keys().hasOnly(['uid', 'username', 'text', 'emoji', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 300
+          && request.resource.data.emoji == '';
+
+        allow update: if false;
+
+        allow delete: if isAdmin()
+          || (signedIn() && resource.data.uid == request.auth.uid)
+          || (signedIn() && get(/databases/$(database)/documents/stories/$(storyId)).data.ownerUid == request.auth.uid);
+      }
+
+      match /views/{userId} {
+        // Only the story owner can inspect the viewer list.
+        allow read: if signedIn()
+          && get(/databases/$(database)/documents/stories/$(storyId)).data.ownerUid == request.auth.uid;
+        // Each signed-in viewer may write only their own view document.
+        // Update is allowed so merge writes remain idempotent on repeat visits.
+        allow create, update: if signedIn()
+          && userId == request.auth.uid
+          && request.resource.data.keys().hasOnly(['uid', 'viewedAt'])
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if false;
+      }
+
+      match /reactions/{userId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && userId == request.auth.uid
+          && request.resource.data.keys().hasOnly(['uid', 'emoji', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.emoji in ['❤️', '😂', '😮'];
+        allow update: if false;
+        allow delete: if signedIn()
+          && (
+            request.auth.uid == userId
+            || get(/databases/$(database)/documents/stories/$(storyId)).data.ownerUid == request.auth.uid
+          );
+      }
+    }
+
+    // ------------------------------------------------------------
+    // Activity posts and likes
+    // ------------------------------------------------------------
+    match /activity_posts/{postId} {
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow update: if isAdmin()
+        || (signedIn() && resource.data.ownerUid == request.auth.uid)
+        || (
+          signedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments'])
+          && request.resource.data.comments.size() == resource.data.comments.size() + 1
+          && request.resource.data.comments[request.resource.data.comments.size() - 1].uid == request.auth.uid
+        );
+
+      allow delete: if isAdmin()
+        || (signedIn() && resource.data.ownerUid == request.auth.uid);
+
+      match /likes/{userId} {
+        allow read: if signedIn();
+
+        allow create: if signedIn()
+          && request.auth.uid == userId
+          && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+          && request.resource.data.uid == request.auth.uid;
+
+        allow delete: if signedIn()
+          && (
+            request.auth.uid == userId
+            || get(/databases/$(database)/documents/activity_posts/$(postId)).data.ownerUid == request.auth.uid
+          );
+        allow update: if false;
+      }
+    }
+
+    // ------------------------------------------------------------
+    // Private one-to-one chats
+    // ------------------------------------------------------------
+    match /chats/{chatId} {
+
+      // A signed-in participant can get their own chat document.
+      // A missing deterministic chat document may be checked before creation.
+      allow get: if signedIn()
+        && (
+          !exists(/databases/$(database)/documents/chats/$(chatId))
+          || isChatParticipant()
+        );
+
+      // ChatListPage query:
+      // .collection('chats')
+      // .where('participants', arrayContains: request.auth.uid)
+      // Firestore can prove this query is restricted to the signed-in user.
+      // Do not replace this with allow list: if signedIn(), because that
+      // would expose other users' private chat documents.
+      allow list: if signedIn()
+        && request.auth.uid in resource.data.participants;
+
+      // Create a chat only for two distinct users, initiated by the caller.
+      // Normal friend chats require mutual follows.
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll([
+          'participants',
+          'initiatedByUid',
+          'createdAt',
+          'requestType',
+          'lastMessage',
+          'lastSenderUid',
+          'lastMessageAt'
+        ])
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.resource.data.participants[0] is string
+        && request.resource.data.participants[1] is string
+        && request.resource.data.participants[0] != request.resource.data.participants[1]
+        && request.resource.data.participants.hasAny([request.auth.uid])
+        && request.resource.data.participants.hasAny([chatPeer(request.resource.data)])
+        && request.resource.data.initiatedByUid == request.auth.uid
+        && request.resource.data.lastSenderUid == request.auth.uid
+        && (
+          (
+            request.resource.data.requestType == 'friend'
+            && mutualFriends(chatPeer(request.resource.data))
+          )
+          ||
+          (
+            request.resource.data.requestType == 'donor_contact'
+            && request.resource.data.donorPostId is string
+            && validDonorContact(request.resource.data.donorPostId, chatPeer(request.resource.data))
+          )
+          ||
+          (
+            request.resource.data.requestType == 'story_reaction'
+            && request.resource.data.storyId is string
+            && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId))
+            && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)).data.ownerUid == chatPeer(request.resource.data)
+            && (
+              exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/reactions/$(request.auth.uid))
+              || (
+                request.resource.data.latestReplyId is string
+                && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/replies/$(request.resource.data.latestReplyId))
+                && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/replies/$(request.resource.data.latestReplyId)).data.uid == request.auth.uid
+              )
+            )
+          )
+        );
+
+      // Sender updates the chat preview; receiver can only mark the latest preview as read.
+      allow update: if isChatParticipant()
+        && (
+          (
+            request.resource.data.participants == resource.data.participants
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'lastMessage',
+              'lastMessageAt',
+              'lastSenderUid',
+              'lastMessageRead',
+              'requestType',
+              'storyId',
+              'latestReplyId',
+              'donorPostId'
+            ])
+            && request.resource.data.lastSenderUid == request.auth.uid
+            && (
+              (
+                request.resource.data.requestType == 'friend'
+                && mutualFriends(chatPeer(resource.data))
+              )
+              ||
+              (
+                request.resource.data.requestType == 'donor_contact'
+                && request.resource.data.donorPostId is string
+                && validDonorContactForChat(request.resource.data.donorPostId, resource.data.participants)
+              )
+              ||
+              (
+                request.resource.data.requestType == 'story_reaction'
+                && request.resource.data.storyId is string
+                && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId))
+                && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)).data.ownerUid == chatPeer(resource.data)
+                && (
+                  exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/reactions/$(request.auth.uid))
+                  || (
+                    request.resource.data.latestReplyId is string
+                    && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/replies/$(request.resource.data.latestReplyId))
+                    && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/replies/$(request.resource.data.latestReplyId)).data.uid == request.auth.uid
+                  )
+                )
+              )
+            )
+          )
+          ||
+          (
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastMessageRead'])
+            && resource.data.lastSenderUid != request.auth.uid
+            && request.resource.data.lastMessageRead == true
+          )
+        );
+
+      // Hanya peserta chat yang boleh menghapus dokumen chat.
+      allow delete: if signedIn()
+        && resource.data.participants is list
+        && resource.data.participants.size() == 2
+        && request.auth.uid in resource.data.participants;
+
+      // Allow both single-message reads and message-list/stream queries,
+      // but only for a signed-in participant of the parent chat.
+      match /messages/{messageId} {
+        allow get, list: if isParentChatParticipant(chatId);
+
+        allow create: if isParentChatParticipant(chatId)
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.receiverUid == chatPeer(
+            get(/databases/$(database)/documents/chats/$(chatId)).data
+          )
+          && (
+            (
+              request.resource.data.type == 'story_reaction'
+              && request.resource.data.storyId is string
+              && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId))
+              && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)).data.ownerUid == request.resource.data.receiverUid
+              && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/reactions/$(request.auth.uid))
+            )
+            ||
+            (
+              request.resource.data.type == 'story_reply'
+              && request.resource.data.storyId is string
+              && request.resource.data.replyId is string
+              && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId))
+              && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)).data.ownerUid == request.resource.data.receiverUid
+              && exists(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/replies/$(request.resource.data.replyId))
+              && get(/databases/$(database)/documents/stories/$(request.resource.data.storyId)/replies/$(request.resource.data.replyId)).data.uid == request.auth.uid
+            )
+            ||
+            (
+              request.resource.data.type in ['text', 'image', 'audio', 'file', 'location']
+              && (
+                mutualFriends(request.resource.data.receiverUid)
+                || (
+                  get(/databases/$(database)/documents/chats/$(chatId)).data.requestType == 'donor_contact'
+                  && validDonorContactForChat(
+                    get(/databases/$(database)/documents/chats/$(chatId)).data.donorPostId,
+                    get(/databases/$(database)/documents/chats/$(chatId)).data.participants
+                  )
+                )
+              )
+            )
+          );
+
+        allow update: if isParentChatParticipant(chatId)
+          && (
+            (
+              resource.data.receiverUid == request.auth.uid
+              && resource.data.viewOnce == true
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewedBy'])
+              && request.resource.data.viewedBy is list
+              && request.resource.data.viewedBy.size() == resource.data.get('viewedBy', []).size() + 1
+              && request.resource.data.viewedBy.hasAll(resource.data.get('viewedBy', []))
+              && request.resource.data.viewedBy.hasAny([request.auth.uid])
+            )
+            || (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenFor'])
+              && request.resource.data.hiddenFor is list
+              && request.resource.data.hiddenFor.size() == resource.data.get('hiddenFor', []).size() + 1
+              && request.resource.data.hiddenFor.hasAll(resource.data.get('hiddenFor', []))
+              && request.resource.data.hiddenFor.hasAny([request.auth.uid])
+            )
+            || (
+              resource.data.receiverUid == request.auth.uid
+              && resource.data.read != true
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+              && request.resource.data.read == true
+            )
+          );
+        // Hapus untuk semua orang hanya boleh dilakukan oleh pengirim pesan.
+        allow delete: if isParentChatParticipant(chatId)
+          && resource.data.senderUid == request.auth.uid;
+      }
+    }
+
+    // Device push tokens: users may write only their own token records.
+    match /notification_tokens/{tokenId} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.token is string
+        && request.resource.data.token.size() > 20;
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.token is string
+        && request.resource.data.token.size() > 20;
+      allow read, delete: if isAdmin()
+        || (signedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // Private social activity notifications. Sender identity is bound to auth;
+    // only the recipient can read, mark as read, or delete an item.
+    match /user_notifications/{notificationId} {
+      allow read: if signedIn() && resource.data.receiverUid == request.auth.uid;
+      // Only trusted Cloud Functions may create notifications. Client-side
+      // notification writes caused duplicate pushes and allowed forged events.
+      allow create: if false;
+      allow update: if signedIn()
+        && resource.data.receiverUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
+        && request.resource.data.read is bool;
+      allow delete: if signedIn() && resource.data.receiverUid == request.auth.uid;
+    }
+
+    // Notification campaigns are created only by admins. A trusted Cloud
+    // Function delivers them; client apps never receive server credentials.
+    match /notifications/{notificationId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.status == 'sent');
+      allow create: if isAdmin()
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 80
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && request.resource.data.body.size() <= 240
+        && request.resource.data.routeType in ['none', 'info', 'dashboard_info', 'url']
+        && request.resource.data.status == 'queued';
+      allow update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // Admin information posts
+    // ------------------------------------------------------------
+    match /info_posts/{postId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+
+      // Each signed-in member can create or remove only their own info like.
+      match /likes/{uid} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if signedIn() && request.auth.uid == uid;
+        allow update: if false;
+      }
+    }
+
+    // Event agenda shared by the mobile app and Cloudflare admin dashboard.
+    match /admin_events/{eventId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // Editorial history and pantun content managed from the web admin dashboard.
+    match /history_posts/{historyId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /pantun_posts/{pantunId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ------------------------------------------------------------
+    // Blood donation posts
+    // ------------------------------------------------------------
+    match /blood_posts/{postId} {
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow read: if isAdmin()
+        || (signedIn() && resource.data.ownerUid == request.auth.uid)
+        || (signedIn() && resource.data.status == 'approved');
+
+      allow update, delete: if isAdmin();
+    }
+  }
+}

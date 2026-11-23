@@ -1,0 +1,425 @@
+name: Build Kalbar Kite APK
+# Build the Android APK on demand and for updates to main.
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, kalbar-kite-profile-follow-ui]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kalbar-kite-android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_USER_HOME: ${{ github.workspace }}/.android-user
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Free runner disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
+          sudo rm -rf /usr/local/lib/android/sdk/system-images /usr/local/lib/android/sdk/emulator
+          docker system prune -af || true
+          echo "Disk space after cleanup:"
+          df -h
+      - name: Restore stable Android signing key
+        id: signing-key-cache
+        uses: actions/cache@v4
+        with:
+          path: .android-user/debug.keystore
+          key: kalbar-kite-android-signing-key-v1
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+      - name: Cache Flutter and Android build dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pub-cache
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-kalbarkite-flutter-3.35.7-android-cache-v5
+          restore-keys: |
+            ${{ runner.os }}-kalbarkite-android-cache-
+      - name: Generate Android project files
+        run: flutter create --platforms=android --project-name kalbarku .
+      - name: Declare Android camera permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          text = manifest.read_text()
+          permission = '    <uses-permission android:name="android.permission.CAMERA" />'
+          if 'android.permission.CAMERA' not in text:
+              text = text.replace('<application', permission + '\n    <application', 1)
+          feature = '    <uses-feature android:name="android.hardware.camera.any" android:required="false" />'
+          if 'android.hardware.camera.any' not in text:
+              text = text.replace('<application', feature + '\n    <application', 1)
+          # Reduce camera/gallery OOM risk on devices with limited RAM.
+          if 'android:largeHeap=' not in text:
+              text = text.replace('<application', '<application android:largeHeap="true"', 1)
+          manifest.write_text(text)
+          PY
+      - name: Upgrade Kotlin Gradle plugin for MapLibre
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          candidates = [
+              Path("android/settings.gradle"),
+              Path("android/settings.gradle.kts"),
+              Path("android/build.gradle"),
+              Path("android/build.gradle.kts"),
+          ]
+          path = next((candidate for candidate in candidates if candidate.is_file()), None)
+          if path is None:
+              raise SystemExit("ERROR: Flutter did not generate an Android Gradle settings/build file.")
+
+          text = path.read_text()
+          pattern = r'(id\(["\']org\.jetbrains\.kotlin\.android["\']\)\s+version\s+)["\'][^"\']+["\']'
+          updated, count = re.subn(pattern, r'\g<1>"2.3.0"', text, count=1)
+          if count != 1:
+              raise SystemExit(f"ERROR: Kotlin Android plugin declaration not found in {path}.")
+          path.write_text(updated)
+          print(f"Updated Kotlin Android Gradle plugin in {path} to 2.3.0.")
+          print("Kotlin Gradle plugin pinned to 2.3.0 for MapLibre Kotlin metadata compatibility.")
+          PY
+      - name: Migrate Kotlin JVM target to compilerOptions DSL
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path("android/app/build.gradle.kts")
+          if not path.is_file():
+              raise SystemExit("ERROR: Android app Gradle Kotlin DSL file was not generated.")
+
+          text = path.read_text()
+          pattern = r'(?m)^\s*kotlinOptions\s*\{[^{}]*\}\s*'
+          updated, count = re.subn(pattern, "", text, count=1)
+          if count != 1:
+              raise SystemExit("ERROR: Legacy kotlinOptions block was not found exactly once.")
+
+          if "compilerOptions {" not in updated:
+              updated += """
+
+          kotlin {
+              compilerOptions {
+                  jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11)
+              }
+          }
+          """
+          path.write_text(updated)
+          print("Migrated Android Kotlin JVM target to compilerOptions DSL (JVM 11).")
+          PY
+      - name: Configure image cropper Android 15 theme
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          if 'xmlns:tools=' not in text:
+              text = text.replace('<manifest ', '<manifest xmlns:tools="http://schemas.android.com/tools" ', 1)
+          if 'com.yalantis.ucrop.UCropActivity' not in text:
+              activity = '''        <activity
+                  android:name="com.yalantis.ucrop.UCropActivity"
+                  android:screenOrientation="portrait"
+                  android:theme="@style/Ucrop.CropTheme"
+                  tools:replace="android:theme" />
+          '''
+              text = text.replace('</application>', activity + '    </application>')
+          else:
+              text = re.sub(
+                  r'<activity([^>]*android:name="com\.yalantis\.ucrop\.UCropActivity"[^>]*)/>',
+                  lambda match: match.group(0) if 'Ucrop.CropTheme' in match.group(1) else match.group(0).replace('/>', ' android:theme="@style/Ucrop.CropTheme" tools:replace="android:theme" />'),
+                  text,
+              )
+          manifest.write_text(text)
+
+          values = Path('android/app/src/main/res/values/styles.xml')
+          styles = values.read_text()
+          if 'name="Ucrop.CropTheme"' not in styles:
+              styles = styles.replace('</resources>', '    <style name="Ucrop.CropTheme" parent="Theme.AppCompat.Light.NoActionBar"/>\n</resources>')
+          values.write_text(styles)
+
+          values_v35 = Path('android/app/src/main/res/values-v35/styles.xml')
+          values_v35.parent.mkdir(parents=True, exist_ok=True)
+          values_v35.write_text('''<?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="Ucrop.CropTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+              </style>
+          </resources>
+          ''')
+          PY
+      - name: Configure reliable Maven resolution
+        run: |
+          mkdir -p "$HOME/.gradle"
+          cat > "$HOME/.gradle/gradle.properties" <<'PROPERTIES'
+          org.gradle.jvmargs=-Xmx4G -Dfile.encoding=UTF-8 -Dhttp.connectionTimeout=120000 -Dhttp.socketTimeout=120000
+          org.gradle.parallel=false
+          org.gradle.workers.max=2
+          org.gradle.vfs.watch=false
+          org.gradle.caching=true
+          systemProp.http.connectionTimeout=120000
+          systemProp.http.socketTimeout=120000
+          systemProp.https.connectionTimeout=120000
+          systemProp.https.socketTimeout=120000
+          PROPERTIES
+          cat > "$RUNNER_TEMP/kalbar-maven.init.gradle" <<'GRADLE'
+          gradle.beforeProject { project ->
+              // Add repositories only to the legacy buildscript classpath.
+              // Project repositories are forbidden by Flutter's settings.gradle.kts
+              // repositoriesMode=FAIL_ON_PROJECT_REPOS.
+              project.buildscript.repositories {
+                  mavenCentral()
+                  google()
+              }
+          }
+          GRADLE
+          echo "Gradle wrapper version is provided by the pinned Flutter 3.35.7 Android template."
+      - name: Set launcher app name
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('android/app/src/main/AndroidManifest.xml')
+          text = path.read_text()
+          text = text.replace('android:label="kalbarku"', 'android:label="Kalbar Kite"')
+          path.write_text(text)
+          PY
+      - name: Set Kalbar Kite launcher icon
+        run: |
+          mkdir -p android/app/src/main/res/drawable android/app/src/main/res/mipmap-anydpi-v26
+          cat > android/app/src/main/res/drawable/ic_kalbar_kite_foreground.xml <<'XML'
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp" android:height="108dp"
+              android:viewportWidth="108" android:viewportHeight="108">
+              <path android:fillColor="#C5A24A" android:pathData="M78,18a9,9 0,1 0,0.1 0Z" />
+              <path android:fillColor="#34443A" android:pathData="M54,13C38,13 26,25 26,40c0,11 6,19 16,23v8l-8,8 16,-3 4,13 4,-13 16,3 -8,-8v-8c10,-4 16,-12 16,-23C82,25 70,13 54,13z" />
+              <path android:fillColor="#EAF0E4" android:pathData="M49,29c-8,3 -12,10 -12,17 0,5 3,9 8,12 0,-10 4,-18 12,-24 -1,-3 -4,-5 -8,-5z" />
+              <path android:fillColor="#C5A24A" android:pathData="M17,88c12,-10 23,-10 34,-2 10,7 19,7 29,-1 5,-4 9,-5 13,-4v12H17z" />
+              <path android:fillColor="#FFFFFF" android:pathData="M21,91c11,-6 20,-6 29,0 10,6 21,5 31,-2 4,-3 8,-4 12,-3v3c-4,-1 -8,1 -11,3 -11,8 -23,8 -34,1 -9,-6 -17,-6 -27,0z" />
+          </vector>
+          XML
+          cat > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'XML'
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_kalbar_kite_foreground" />
+          </adaptive-icon>
+          XML
+          mkdir -p android/app/src/main/res/values
+          cat > android/app/src/main/res/values/ic_launcher_background.xml <<'XML'
+          <resources><color name="ic_launcher_background">#FFFEFA</color></resources>
+          XML
+      - name: Configure Firebase Android
+        run: |
+          mkdir -p android/app
+          if [ -f google-services.json ]; then
+            cp google-services.json android/app/google-services.json
+            echo "Firebase google-services.json found."
+          else
+            echo "::warning::google-services.json belum ada. Build sementara memakai FirebaseOptions di Dart; Google Sign-In perlu SHA-1 dan file konfigurasi resmi setelahnya."
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("android/app/build.gradle.kts")
+          text = path.read_text()
+          plugin = '    id("com.google.gms.google-services") version "4.5.0"'
+          if Path("google-services.json").exists() and "com.google.gms.google-services" not in text:
+              text = text.replace("plugins {", "plugins {\n" + plugin, 1)
+          signing = '''
+          android {
+              signingConfigs {
+                  getByName("debug") {
+                      storeFile = file(System.getenv("ANDROID_USER_HOME") + "/debug.keystore")
+                      storePassword = "android"
+                      keyAlias = "AndroidDebugKey"
+                      keyPassword = "android"
+                  }
+              }
+          }
+          '''
+          if 'storeFile = file(System.getenv("ANDROID_USER_HOME")' not in text:
+              text += "\n" + signing
+          path.write_text(text)
+          PY
+      - name: Enable internet permission
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("android/app/src/main/AndroidManifest.xml")
+          text = path.read_text()
+          permissions = [
+              '<uses-permission android:name="android.permission.INTERNET" />',
+              '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+              '<uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />',
+              '<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />',
+              '<uses-permission android:name="android.permission.CAMERA" />',
+              '<uses-permission android:name="android.permission.RECORD_AUDIO" />',
+          ]
+          for permission in permissions:
+              if permission not in text:
+                  text = text.replace('<application', permission + '\n    <application', 1)
+          path.write_text(text)
+          PY
+      - name: Set Android compile SDK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("android/app/build.gradle.kts")
+          text = path.read_text()
+          text = text.replace("compileSdk = flutter.compileSdkVersion", "compileSdk = 36", 1)
+          if "isCoreLibraryDesugaringEnabled" not in text:
+              text = text.replace(
+                  "compileOptions {",
+                  "compileOptions {\n        isCoreLibraryDesugaringEnabled = true",
+                  1,
+              )
+          if "desugar_jdk_libs" not in text:
+              text += '''
+          dependencies {
+              coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+          }
+          '''
+          path.write_text(text)
+          PY
+      - name: Validate generated Android Gradle files
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          gradle = Path("android/app/build.gradle.kts").read_text()
+          if r"\n" in gradle:
+              raise SystemExit("ERROR: Literal \\n escape found in generated Gradle Kotlin script.")
+          if not gradle.startswith("plugins {"):
+              raise SystemExit("ERROR: Android app Gradle file does not start with a valid plugins block.")
+          print("Android Gradle Kotlin script structure validated.")
+          PY
+      - name: Get dependencies with retry
+        run: |
+          for attempt in 1 2 3; do
+            echo "flutter pub get attempt $attempt/3"
+            if flutter pub get; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              sleep $((attempt * 15))
+            fi
+          done
+          echo "ERROR: flutter pub get failed after 3 attempts."
+          exit 1
+      - name: Format Dart source
+        run: dart format lib test
+      - name: Analyze Dart
+        run: flutter analyze --no-fatal-infos
+      - name: Prepare stable Android signing key for beta builds
+        run: |
+          mkdir -p "$ANDROID_USER_HOME"
+          if [ ! -f "$ANDROID_USER_HOME/debug.keystore" ]; then
+            keytool -genkeypair -v -keystore "$ANDROID_USER_HOME/debug.keystore" -storepass android -alias AndroidDebugKey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          echo "Android signing keystore: $ANDROID_USER_HOME/debug.keystore"
+      - name: Persist signing key before long build
+        if: steps.signing-key-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .android-user/debug.keystore
+          key: kalbar-kite-android-signing-key-v1
+      - name: Set up Node.js for backend validation
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate Cloudflare Worker syntax
+        run: node --check cloudflare-worker/src/index.js
+      - name: Run widget tests
+        run: flutter test
+      - name: Check disk space before APK build
+        run: |
+          df -h
+          df -h "$GITHUB_WORKSPACE"
+      - name: Build single compact ARM64 APK
+        run: |
+          # Build only for modern 64-bit Android phones instead of bundling
+          # ARM32, ARM64 and x86_64 native libraries into one oversized APK.
+          flutter build apk --release --target lib/main.dart --target-platform android-arm64 --obfuscate --split-debug-info=build/symbols --tree-shake-icons --no-pub
+          ls -lh build/app/outputs/flutter-apk/app-release.apk
+          echo "Disk space after APK build:"
+          df -h
+      - name: Verify APK package compatibility
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          APKANALYZER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name apkanalyzer | sort -V | tail -n 1)"
+          if [ -z "$APKANALYZER" ]; then
+            echo "ERROR: apkanalyzer was not found in Android SDK command-line tools."
+            exit 1
+          fi
+          echo "APK minimum Android SDK:"
+          "$APKANALYZER" manifest min-sdk "$APK"
+          echo "APK native ABIs:"
+          "$APKANALYZER" files list "$APK" | grep -E '^/lib/arm64-v8a/' | sort -u
+          if ! "$APKANALYZER" files list "$APK" | grep -q '^/lib/arm64-v8a/'; then
+            echo "ERROR: ARM64 APK is missing arm64-v8a native libraries."
+            exit 1
+          fi
+          echo "APK size:"
+          du -h "$APK"
+      - name: Verify APK signing fingerprint matches Firebase
+        if: hashFiles('google-services.json') != ''
+        run: |
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "ERROR: apksigner was not found in Android SDK build-tools."
+            exit 1
+          fi
+          "$APKSIGNER" verify --print-certs "$APK" | tee "$RUNNER_TEMP/apk-certificates.txt"
+          python3 - "$APK" "$RUNNER_TEMP/apk-certificates.txt" <<'PY'
+          import json
+          import re
+          import sys
+          from pathlib import Path
+          config = json.loads(Path("google-services.json").read_text())
+          expected = {
+              item.get("android_info", {}).get("certificate_hash", "").lower()
+              for client in config.get("client", [])
+              for item in client.get("oauth_client", [])
+              if item.get("client_type") == 1
+          }
+          expected = {re.sub(r"[^0-9a-f]", "", value) for value in expected if value}
+          output = Path(sys.argv[2]).read_text()
+          match = re.search(r"certificate SHA-1 digest:\s*([0-9a-fA-F: ]+)", output, re.IGNORECASE)
+          if not match:
+              raise SystemExit("ERROR: Could not read APK SHA-1 from apksigner output.")
+          actual = re.sub(r"[^0-9a-f]", "", match.group(1).lower())
+          print(f"APK SHA-1: {actual}")
+          print(f"Firebase Android SHA-1 entries: {', '.join(sorted(expected)) or '(none)'}")
+          if actual not in expected:
+              raise SystemExit("ERROR: APK signing SHA-1 does not match any Android OAuth fingerprint in google-services.json. Register the APK SHA-1 in Firebase, then download and commit a fresh google-services.json.")
+          print("OK: APK signing SHA-1 matches Firebase Android OAuth configuration.")
+          PY
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Kalbar-Kite-APK-ARM64
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
