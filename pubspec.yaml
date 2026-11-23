@@ -42,5 +42,3 @@ flutter:
   uses-material-design: true
   assets:
     - assets/images/kalbar_kite_login.jpg
-    - assets/images/kalbar_kite_splash.png
-    - assets/audio/kalbar_kite_intro.wav
