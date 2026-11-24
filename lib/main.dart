@@ -4897,7 +4897,7 @@ class HomePage extends StatelessWidget {
         Text(title, style: GoogleFonts.fredoka(fontSize: 21, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface, letterSpacing: -.2, height: 1.1)),
         if (subtitle != null) ...[
           const SizedBox(height: 3),
-          Text(subtitle, style: GoogleFonts.manrope(fontSize: 13.5, height: 1.3, fontWeight: FontWeight.w500, color: theme.colorScheme.onSurfaceVariant)),
+          Text(subtitle, style: GoogleFonts.manrope(fontSize: 13.5, height: 1.3, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
         ],
       ]),
     );
@@ -5110,7 +5110,7 @@ class _UpcomingAgendaPreview extends StatelessWidget {
                 style: GoogleFonts.fredoka(fontSize: 13, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
               const SizedBox(height: 3),
               Text(event?['title'] ?? 'Belum ada agenda', maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 10.5, height: 1.15, color: theme.colorScheme.onSurfaceVariant)),
+                style: GoogleFonts.manrope(fontSize: 10.5, height: 1.2, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
             ])),
             const Icon(Icons.chevron_right_rounded, size: 18),
           ]),
