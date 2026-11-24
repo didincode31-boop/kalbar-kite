@@ -4156,17 +4156,67 @@ class _StoriesStrip extends StatelessWidget {
   const _StoriesStrip({required this.onAdd, required this.onOpen});
   @override
   Widget build(BuildContext context) {
-    return SizedBox(height: 92, child: ListView(scrollDirection: Axis.horizontal, children: [
-      GestureDetector(onTap: onAdd, child: SizedBox(width: 68, child: Column(children: [
-        Stack(children: [_accountAvatar(Store.currentEmail, radius: 34), Positioned(right: 0, bottom: 0, child: Container(width: 19, height: 19, decoration: const BoxDecoration(color: forest, shape: BoxShape.circle), child: const Icon(CupertinoIcons.plus, size: 15, color: Colors.white)))]),
-        const SizedBox(height: 5), const Text('Cerita kamu', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
-      ]))),
-      for (final story in Store.stories) GestureDetector(onTap: () => onOpen(story), child: SizedBox(width: 68, child: Column(children: [
-        Container(padding: const EdgeInsets.all(2), decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: const Color(0xFF2587D8), width: 2)), child: _remoteAvatar(story['avatarUrl'] ?? '', radius: 25,
-              backgroundColor: Colors.white, iconColor: forest)),
-        const SizedBox(height: 5), Text('@${story['username'] ?? 'warga'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
-      ]))),
-    ]));
+    final currentUid = _auth.currentUser?.uid ?? '';
+    final myStories = Store.stories
+        .where((item) => currentUid.isNotEmpty && (item['uid'] ?? '') == currentUid)
+        .toList();
+    final myStory = myStories.isEmpty ? null : myStories.first;
+
+    // Satu lingkaran per akun, bukan satu lingkaran per dokumen story.
+    // Story milik akun sendiri hanya tampil pada slot "Cerita kamu".
+    final seenOwners = <String>{};
+    final otherStories = Store.stories.where((item) {
+      final ownerUid = (item['uid'] ?? '').trim();
+      if (ownerUid.isEmpty || ownerUid == currentUid) return false;
+      return seenOwners.add(ownerUid);
+    }).toList();
+
+    return SizedBox(height: 92, child: ListView(
+      scrollDirection: Axis.horizontal,
+      children: [
+        SizedBox(width: 72, child: Column(children: [
+          Stack(clipBehavior: Clip.none, children: [
+            GestureDetector(
+              onTap: myStory == null ? onAdd : () => onOpen(myStory),
+              child: Container(
+                padding: myStory == null ? EdgeInsets.zero : const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: myStory == null ? null : Border.all(color: const Color(0xFF2587D8), width: 2),
+                ),
+                child: myStory == null
+                    ? _accountAvatar(Store.currentEmail, radius: 31)
+                    : _remoteAvatar(myStory['avatarUrl'] ?? '', radius: 29,
+                        backgroundColor: Colors.white, iconColor: forest),
+              ),
+            ),
+            Positioned(right: -1, bottom: -1, child: GestureDetector(
+              onTap: onAdd,
+              child: Container(
+                width: 21, height: 21,
+                decoration: const BoxDecoration(color: forest, shape: BoxShape.circle),
+                child: const Icon(CupertinoIcons.plus, size: 15, color: Colors.white),
+              ),
+            )),
+          ]),
+          const SizedBox(height: 5),
+          const Text('Cerita kamu', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+        ])),
+        for (final story in otherStories)
+          GestureDetector(onTap: () => onOpen(story), child: SizedBox(width: 72, child: Column(children: [
+            Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF2587D8), width: 2)),
+              child: _remoteAvatar(story['avatarUrl'] ?? '', radius: 29,
+                backgroundColor: Colors.white, iconColor: forest),
+            ),
+            const SizedBox(height: 5),
+            Text('@${story['username'] ?? 'warga'}', maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+          ]))),
+      ],
+    ));
   }
 }
 class _StoryVideoPlayer extends StatefulWidget {
@@ -5284,7 +5334,7 @@ class HomePage extends StatelessWidget {
               Expanded(child: _service(context, title: 'Layanan Publik', subtitle: 'Informasi layanan Kalbar',
                 icon: Icons.account_balance_outlined, start: mint, end: dark ? const Color(0xFF303238) : const Color(0xFFF0F1F3),
                 accent: dark ? const Color(0xFF80D8C3) : const Color(0xFF328F7B),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage())))),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RandomPage())))),
             ])),
           ]),
         ),
