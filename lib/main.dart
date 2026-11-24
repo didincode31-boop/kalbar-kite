@@ -2348,13 +2348,12 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       ),
       const SizedBox(width: 6),
     ]),
-    body: IndexedStack(index: tab, children: const [HomePage(), ExplorePage(), ActivityPage(), ChatListPage(embedded: true), InfoPage(), ProfilePage()]),
+    body: IndexedStack(index: tab, children: const [HomePage(), ActivityPage(), ChatListPage(embedded: true), InfoPage(), ProfilePage()]),
     bottomNavigationBar: _iosBottomBar(context, NavigationBar(
       selectedIndex: tab,
       onDestinationSelected: (v) => setState(() => tab = v),
       destinations: const [
         NavigationDestination(icon: Icon(CupertinoIcons.house), selectedIcon: Icon(CupertinoIcons.house_fill), label: 'Home'),
-        NavigationDestination(icon: Icon(CupertinoIcons.compass), selectedIcon: Icon(CupertinoIcons.compass_fill), label: 'Jelajah'),
         NavigationDestination(icon: Icon(CupertinoIcons.square_grid_2x2), selectedIcon: Icon(CupertinoIcons.square_grid_2x2_fill), label: 'Posting'),
         NavigationDestination(icon: Icon(CupertinoIcons.chat_bubble_2), selectedIcon: Icon(CupertinoIcons.chat_bubble_2_fill), label: 'Chat'),
         NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
@@ -4918,7 +4917,15 @@ class HomePage extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
       children: [
         const WelcomeBanner(),
-        const SizedBox(height: 24),
+        const SizedBox(height: 14),
+        const _LiveWeatherCard(),
+        const SizedBox(height: 18),
+        _sectionTitle(context, 'Agenda Mendatang', subtitle: 'Kegiatan dan festival di Kalimantan Barat'),
+        const _UpcomingAgendaPreview(),
+        const SizedBox(height: 18),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Expanded(child: _sectionTitle(context, 'Jelajahi Kalbar', subtitle: 'Wisata, budaya, kuliner, dan produk lokal')), TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExplorePage())), child: const Text('Lihat Semua'))]),
+        const _ExploreDashboardPreview(),
+        const SizedBox(height: 20),
         _sectionTitle(context, 'Layanan Utama', subtitle: 'Akses layanan dan informasi penting seputar Kalbar'),
         Container(
           decoration: BoxDecoration(
@@ -4946,34 +4953,96 @@ class HomePage extends StatelessWidget {
                 accent: dark ? const Color(0xFFFF9EAE) : const Color(0xFFD94E68),
                 onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DonorPage())))),
               VerticalDivider(width: 1, thickness: 1, color: theme.dividerColor),
-              Expanded(child: _service(context, title: 'Event Kalbar', subtitle: 'Agenda kegiatan',
-                icon: Icons.event_note_rounded, start: mint, end: dark ? const Color(0xFF303238) : const Color(0xFFF0F1F3),
+              Expanded(child: _service(context, title: 'Layanan Publik', subtitle: 'Informasi layanan Kalbar',
+                icon: Icons.account_balance_outlined, start: mint, end: dark ? const Color(0xFF303238) : const Color(0xFFF0F1F3),
                 accent: dark ? const Color(0xFF80D8C3) : const Color(0xFF328F7B),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EventPage())))),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage())))),
             ])),
           ]),
-        ),
-        const SizedBox(height: 10),
-        Container(
-          decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(15),
-            border: Border.all(color: theme.dividerColor.withValues(alpha: .8), width: .9),
-          ),
-          child: _service(context, title: 'Lainnya', subtitle: 'Fitur pilihan Kalbar',
-            icon: Icons.favorite_border_rounded, start: yellow, end: dark ? const Color(0xFF514523) : const Color(0xFFFFEDC2),
-            accent: const Color(0xFFB47A0A), wide: true,
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RandomPage()))),
         ),
         const SizedBox(height: 22),
         _sectionTitle(context, 'Informasi Terkini', subtitle: 'Update berita, pengumuman, dan informasi seputar Kalbar'),
         Divider(height: 1, thickness: 1, color: theme.dividerColor.withValues(alpha: .85)),
         const SizedBox(height: 12),
         _LatestDashboardInfo(onOpen: (post) => _openInfo(context, post)),
+        const SizedBox(height: 18),
+        _sectionTitle(context, 'Pengumuman', subtitle: 'Pemberitahuan penting untuk pengguna'),
+        const _DashboardAnnouncements(),
+        const SizedBox(height: 18),
+        const _DidYouKnowCard(),
         const SizedBox(height: 8),
       ],
     );
   }
+}
+
+
+class _LiveWeatherCard extends StatefulWidget {
+  const _LiveWeatherCard();
+  @override State<_LiveWeatherCard> createState() => _LiveWeatherCardState();
+}
+class _LiveWeatherCardState extends State<_LiveWeatherCard> {
+  bool loading=true;
+  String place='Mendeteksi lokasi perangkat', condition='Memuat cuaca…', updated='';
+  String? error;
+  double? temp, feels, humidity, wind;
+  int? code;
+  @override void initState(){super.initState(); _load();}
+  Future<void> _load() async {
+    try {
+      var permission=await Geolocator.checkPermission();
+      if(permission==LocationPermission.denied) permission=await Geolocator.requestPermission();
+      if(permission==LocationPermission.denied||permission==LocationPermission.deniedForever) throw Exception('Izin lokasi belum diberikan');
+      if(!await Geolocator.isLocationServiceEnabled()) throw Exception('Aktifkan GPS untuk melihat cuaca');
+      final pos=await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy:LocationAccuracy.medium,timeLimit:Duration(seconds:18)));
+      final uri=Uri.https('api.open-meteo.com','/v1/forecast',{'latitude':pos.latitude.toString(),'longitude':pos.longitude.toString(),'current':'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m','timezone':'auto'});
+      final response=await http.get(uri).timeout(const Duration(seconds:15));
+      if(response.statusCode!=200) throw Exception('Layanan cuaca tidak merespons');
+      final current=(jsonDecode(response.body) as Map<String,dynamic>)['current'] as Map<String,dynamic>;
+      String city='Lokasi perangkat';
+      try { final geo=await http.get(Uri.https('nominatim.openstreetmap.org','/reverse',{'format':'jsonv2','lat':pos.latitude.toString(),'lon':pos.longitude.toString()}),headers:{'User-Agent':'KalbarKite/1.0'}).timeout(const Duration(seconds:7)); if(geo.statusCode==200){final addr=(jsonDecode(geo.body)['address'] as Map?)??{};city=(addr['city']??addr['town']??addr['county']??addr['state']??city).toString();} } catch(_){}
+      if(!mounted)return;
+      setState(()=>{place=city,temp=(current['temperature_2m'] as num?)?.toDouble(),feels=(current['apparent_temperature'] as num?)?.toDouble(),humidity=(current['relative_humidity_2m'] as num?)?.toDouble(),wind=(current['wind_speed_10m'] as num?)?.toDouble(),code=(current['weather_code'] as num?)?.toInt(),condition=_label((current['weather_code'] as num?)?.toInt()??-1),updated=(current['time']??'').toString().replaceFirst('T',' • '),loading=false,error=null});
+    } catch(e){if(mounted)setState(()=>{loading=false,error=e.toString().replaceFirst('Exception: ','')});}
+  }
+  String _label(int c){if(c==0)return 'Cerah';if(c==1||c==2)return 'Cerah berawan';if(c==3)return 'Berawan';if(c==45||c==48)return 'Berkabut';if(c>=51&&c<=67)return 'Gerimis / hujan';if(c>=80&&c<=82)return 'Hujan';if(c>=95)return 'Badai petir';return 'Kondisi cuaca berubah';}
+  @override Widget build(BuildContext context){
+    final dark=Theme.of(context).brightness==Brightness.dark;final fg=dark?Colors.white:const Color(0xFF173B5A);
+    return Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(gradient:LinearGradient(colors:dark?[const Color(0xFF203D5B),const Color(0xFF26334E)]:[const Color(0xFFD8EEFF),const Color(0xFFEAF4FF]),),borderRadius:BorderRadius.circular(18),border:Border.all(color:Theme.of(context).dividerColor.withValues(alpha:.4))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Row(children:[Icon(Icons.location_on_outlined,size:16,color:fg),const SizedBox(width:4),Expanded(child:Text(place,maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(color:fg,fontWeight:FontWeight.w700))),IconButton(onPressed:loading?null:(){setState(()=>{loading=true,error=null});_load();},icon:const Icon(Icons.refresh_rounded,size:19))]),
+      Row(children:[Icon(code==0?Icons.wb_sunny_rounded:Icons.cloud_rounded,size:45,color:dark?const Color(0xFFFFD166):const Color(0xFF287FC0)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(loading?'Memuat…':(temp==null?'--°C':temp!.round().toString()+'°C'),style:GoogleFonts.fredoka(fontSize:32,fontWeight:FontWeight.w700,color:fg)),Text(condition,style:TextStyle(color:fg,fontWeight:FontWeight.w700)),if(error!=null)Text(error!,style:TextStyle(color:fg,fontSize:11))]))]),
+      const Divider(height:18),
+      Wrap(spacing:16,runSpacing:6,children:[Text('Terasa '+(feels?.round().toString()??'--')+'°C',style:TextStyle(color:fg,fontSize:11)),Text('Kelembapan '+(humidity?.round().toString()??'--')+'%',style:TextStyle(color:fg,fontSize:11)),Text('Angin '+(wind?.toStringAsFixed(0)??'--')+' km/j',style:TextStyle(color:fg,fontSize:11))]),
+      if(updated.isNotEmpty)Text('Diperbarui '+updated,style:TextStyle(color:fg.withValues(alpha:.7),fontSize:10)),
+    ]));
+  }
+}
+
+class _UpcomingAgendaPreview extends StatelessWidget {
+  const _UpcomingAgendaPreview();
+  @override Widget build(BuildContext context){
+    final events=Store.eventPosts.where((e)=>e['status']=='published').toList()..sort((a,b)=>(DateTime.tryParse(a['scheduledAt']??'')??DateTime(2100)).compareTo(DateTime.tryParse(b['scheduledAt']??'')??DateTime(2100)));
+    final event=events.isEmpty?null:events.first;
+    return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const EventPage())),child:Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:Theme.of(context).cardColor,borderRadius:BorderRadius.circular(15),border:Border.all(color:Theme.of(context).dividerColor)),child:Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:const Color(0xFFECE8FF),borderRadius:BorderRadius.circular(12)),child:const Icon(Icons.calendar_month_rounded,color:Color(0xFF7656D8))),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(event?['title']??'Belum ada agenda mendatang',maxLines:1,overflow:TextOverflow.ellipsis,style:GoogleFonts.fredoka(fontWeight:FontWeight.w700,fontSize:15)),Text(event==null?'Agenda kegiatan Kalbar akan muncul di sini':((event['date']??event['scheduledAt']??'')+' • '+(event['location']??'Kalimantan Barat')),maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(fontSize:11,color:Theme.of(context).colorScheme.onSurfaceVariant))])),const Icon(Icons.chevron_right_rounded)])));
+  }
+}
+
+class _ExploreDashboardPreview extends StatelessWidget {
+  const _ExploreDashboardPreview();
+  @override Widget build(BuildContext context){
+    const cards=[('Wisata Alam','https://www.pesonaindo.com/wp-content/uploads/2016/04/P9203020.jpg',Icons.camera_alt_rounded),('Wisata Budaya','https://awsimages.detik.net.id/community/media/visual/2024/11/07/seni-tato-suku-dayak-iban-2.jpeg?q=90&w=650',Icons.groups_rounded),('Kuliner Khas','https://image.popmama.com/post/20260512/upload_4a7fe54d554ab970173472ff8fa3aa73_2392ba97-ccfb-4c7e-b185-07b1eff66bbc.jpg',Icons.restaurant_rounded),('Produk Lokal (UMKM)','https://jadesta.kemenpar.go.id/imgpost/2022/08/02/tenun-sambas.jpg',Icons.storefront_rounded)];
+    return SizedBox(height:145,child:ListView.separated(scrollDirection:Axis.horizontal,itemCount:cards.length,separatorBuilder:(_,__)=>const SizedBox(width:10),itemBuilder:(context,i){final item=cards[i];return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ExplorePage())),child:ClipRRect(borderRadius:BorderRadius.circular(15),child:SizedBox(width:154,child:Stack(fit:StackFit.expand,children:[CachedNetworkImage(imageUrl:item.$2,fit:BoxFit.cover,errorWidget:(_,__,___)=>Container(color:const Color(0xFFE5EEF8),child:Icon(item.$3))),DecoratedBox(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Colors.black.withValues(alpha:.75)]))),Positioned(left:9,right:8,bottom:9,child:Row(children:[Icon(item.$3,color:Colors.white,size:17),const SizedBox(width:5),Expanded(child:Text(item.$1,maxLines:2,style:GoogleFonts.fredoka(color:Colors.white,fontWeight:FontWeight.w700,fontSize:13)))]))]))));}));
+  }
+}
+
+class _DashboardAnnouncements extends StatelessWidget {
+  const _DashboardAnnouncements();
+  @override Widget build(BuildContext context)=>StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(stream:_db.collection('info_posts').orderBy('createdAt',descending:true).limit(20).snapshots(),builder:(context,snapshot){final docs=snapshot.data?.docs??[];final items=docs.where((d)=>(d.data()['category']??'').toString().toLowerCase().contains('pengumuman')||(d.data()['displaySection']??'').toString().toLowerCase().contains('pengumuman')).take(2).toList();if(items.isEmpty)return Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:Theme.of(context).cardColor,borderRadius:BorderRadius.circular(13),border:Border.all(color:Theme.of(context).dividerColor)),child:const Text('Belum ada pengumuman terbaru.'));return Column(children:items.map((d)=>Card(child:ListTile(leading:const Icon(Icons.campaign_outlined,color:Color(0xFF7656D8)),title:Text((d.data()['title']??'Pengumuman').toString(),maxLines:1,overflow:TextOverflow.ellipsis),subtitle:Text((d.data()['body']??'').toString(),maxLines:2,overflow:TextOverflow.ellipsis)))).toList());});
+}
+
+class _DidYouKnowCard extends StatelessWidget {
+  const _DidYouKnowCard();
+  @override Widget build(BuildContext context)=>Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFFEAF9E8),borderRadius:BorderRadius.circular(16),border:Border.all(color:const Color(0xFFD4EFCB))),child:Row(children:[const Icon(Icons.lightbulb_outline_rounded,color:Color(0xFF259A42),size:30),const SizedBox(width:10),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('Tahukah Kamu?',style:GoogleFonts.fredoka(fontSize:17,fontWeight:FontWeight.w700,color:const Color(0xFF183A22))),const Text('Kalimantan Barat memiliki 14 kabupaten/kota dengan keragaman budaya, suku, dan bahasa.',style:TextStyle(color:Color(0xFF183A22),fontSize:12.5,height:1.35))]))]));
 }
 
 class _LatestDashboardInfo extends StatelessWidget {
