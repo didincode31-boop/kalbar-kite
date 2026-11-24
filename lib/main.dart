@@ -4937,7 +4937,7 @@ class HomePage extends StatelessWidget {
         Text(title, style: GoogleFonts.fredoka(fontSize: 21, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface, letterSpacing: -.2, height: 1.1)),
         if (subtitle != null) ...[
           const SizedBox(height: 3),
-          Text(subtitle, style: GoogleFonts.manrope(fontSize: 13.5, height: 1.3, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant)),
+          Text(subtitle, style: GoogleFonts.fredoka(fontSize: 16, height: 1.28, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurfaceVariant, letterSpacing: .05)),
         ],
       ]),
     );
@@ -5147,17 +5147,17 @@ class _UpcomingAgendaPreview extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
               Text('Agenda Mendatang', maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.fredoka(fontSize: 13, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
-              const SizedBox(height: 3),
+                style: GoogleFonts.fredoka(fontSize: 14, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
+              const SizedBox(height: 4),
               Text(event?['title'] ?? 'Belum ada agenda', maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.manrope(fontSize: 10.5, height: 1.2, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
+                style: GoogleFonts.fredoka(fontSize: 12.5, height: 1.18, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
             ])),
             const Icon(Icons.chevron_right_rounded, size: 18),
           ]),
         ),
       );
     }
-    return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const EventPage())),child:Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:Theme.of(context).cardColor,borderRadius:BorderRadius.circular(15),border:Border.all(color:Theme.of(context).dividerColor)),child:Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:const Color(0xFFECE8FF),borderRadius:BorderRadius.circular(12)),child:const Icon(Icons.calendar_month_rounded,color:Color(0xFF7656D8))),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(event?['title']??'Belum ada agenda mendatang',maxLines:1,overflow:TextOverflow.ellipsis,style:GoogleFonts.fredoka(fontWeight:FontWeight.w700,fontSize:15)),Text(event==null?'Agenda kegiatan Kalbar akan muncul di sini':((event['date']??event['scheduledAt']??'')+' • '+(event['location']??'Kalimantan Barat')),maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(fontSize:11,color:Theme.of(context).colorScheme.onSurfaceVariant))])),const Icon(Icons.chevron_right_rounded)])));
+    return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const EventPage())),child:Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:Theme.of(context).cardColor,borderRadius:BorderRadius.circular(15),border:Border.all(color:Theme.of(context).dividerColor)),child:Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:const Color(0xFFECE8FF),borderRadius:BorderRadius.circular(12)),child:const Icon(Icons.calendar_month_rounded,color:Color(0xFF7656D8))),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(event?['title']??'Belum ada agenda mendatang',maxLines:1,overflow:TextOverflow.ellipsis,style:GoogleFonts.fredoka(fontWeight:FontWeight.w700,fontSize:16)),Text(event==null?'Agenda kegiatan Kalbar akan muncul di sini':((event['date']??event['scheduledAt']??'')+' • '+(event['location']??'Kalimantan Barat')),maxLines:2,overflow:TextOverflow.ellipsis,style:GoogleFonts.fredoka(fontSize:12.5,fontWeight:FontWeight.w600,height:1.25,color:Theme.of(context).colorScheme.onSurfaceVariant))])),const Icon(Icons.chevron_right_rounded)])));
   }
 }
 
@@ -9009,26 +9009,7 @@ class PrivacyPolicyPage extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 22, 20, 34),
         children: [
-          Text(
-            'Privasi pengguna Kalbar Kite',
-            style: GoogleFonts.fredoka(
-              fontSize: 29,
-              height: 1.18,
-              fontWeight: FontWeight.w700,
-              color: foreground,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Informasi mengenai kebijakan dan pengelolaan data pengguna.',
-            style: GoogleFonts.fredoka(
-              fontSize: 15.5,
-              height: 1.45,
-              fontWeight: FontWeight.w400,
-              color: muted,
-            ),
-          ),
-          const SizedBox(height: 28),
+          const SizedBox(height: 4),
           Row(
             children: [
               const Icon(
