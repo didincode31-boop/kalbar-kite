@@ -84,7 +84,7 @@ async function handleSocialNotification(request,env,project,access){
     recipient=String(story.ownerUid||story.uid||'');title=type==='story_reply'?actorName+' membalas story-mu':actorName+' bereaksi pada story-mu';body=type==='story_reply'?String(interaction.text||'Membalas story-mu').slice(0,160):String(interaction.emoji||'❤️')+' Reaksi pada story-mu';targetType='story';
   }else{throw Object.assign(Error('Jenis notifikasi belum didukung.'),{status:400})}
   data.targetType=targetType;data.targetId=targetId;
-  data.routeType=targetType==='chat'?'chat':targetType==='profile'?'profile':targetType==='post'?'activity':'home';
+  data.routeType=targetType==='chat'?'chat':targetType==='profile'?'profile':targetType==='post'?'activity':targetType==='story'?'story':'home';
   data.routeValue=targetId;
   if(type==='chat')data.peerUid=actor.uid;
   data.notificationId=[type,id,actor.uid,itemId||'default'].join('_').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,180);
