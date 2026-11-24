@@ -928,7 +928,16 @@ class Store {
     if (_auth.currentUser != null) {
       try { final token = await _auth.currentUser!.getIdTokenResult().timeout(const Duration(seconds: 6)); adminRole = token.claims?['admin'] == true; } catch (_) { adminRole = false; }
     }
-    isDarkMode = prefs?.getBool('isDarkMode') ?? false;
+    // Default tampilan baru Kalbar Kite: dark mode.
+    // Migrasi satu kali agar instalasi lama yang sebelumnya tersimpan light
+    // juga langsung beralih ke dark setelah update. Pilihan pengguna setelah
+    // migrasi tetap disimpan seperti biasa.
+    final darkModeDefaultApplied = prefs?.getBool('darkModeDefaultAppliedV1') ?? false;
+    if (!darkModeDefaultApplied) {
+      await prefs?.setBool('isDarkMode', true);
+      await prefs?.setBool('darkModeDefaultAppliedV1', true);
+    }
+    isDarkMode = prefs?.getBool('isDarkMode') ?? true;
     darkMode.value = isDarkMode;
   }
   static Future<void> setDarkMode(bool value) async {
