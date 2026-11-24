@@ -1619,8 +1619,10 @@ class Store {
     final isVideo = videoPath.isNotEmpty;
     final mediaUrl = isVideo ? await uploadVideo(videoPath, 'stories') :
         (imagePath.isEmpty ? '' : await uploadImage(imagePath, 'stories'));
+    // Masa berlaku dihitung dari waktu unggah, bukan pergantian tanggal.
+    // Story yang diunggah pukul 11.00 akan kedaluwarsa pukul 11.00 esok hari.
     final createdAt = DateTime.now();
-    final expiresAt = createdAt.add(const Duration(hours:24));
+    final expiresAt = createdAt.add(const Duration(hours: 24));
     final data = {
       'ownerUid':user.uid,
       'name':displayName,
@@ -3936,7 +3938,34 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
                 Center(child: Padding(padding: const EdgeInsets.all(28), child: Text(item['text'] ?? '',
                   textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w800)))),
               Positioned(top: 10, left: 12, right: 12, child: Column(children: [
-                LinearProgressIndicator(value: progress, minHeight: 2, backgroundColor: Colors.white38, color: Colors.white),
+                Row(
+                  children: List.generate(widget.stories.length, (storyIndex) {
+                    final segmentValue = storyIndex < index
+                        ? 1.0
+                        : storyIndex == index
+                            ? progress.clamp(0.0, 1.0)
+                            : 0.0;
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: storyIndex == widget.stories.length - 1 ? 0 : 4,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: SizedBox(
+                            height: 3,
+                            child: LinearProgressIndicator(
+                              value: segmentValue,
+                              minHeight: 3,
+                              backgroundColor: Colors.white38,
+                              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
                 const SizedBox(height: 12),
                 Row(children: [
                   CircleAvatar(
