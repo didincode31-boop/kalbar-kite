@@ -280,6 +280,7 @@ late final FirebaseFirestore _db = FirebaseFirestore.instance;
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificationsPlugin();
 bool _notificationServiceReady = false;
+bool _notificationTokenRefreshListenerReady = false;
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -311,52 +312,91 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 }
 
 Future<void> _initializeNotifications(User user) async {
-  if (_notificationServiceReady) return;
-  _notificationServiceReady = true;
   try {
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const iosSettings = DarwinInitializationSettings();
-    await localNotifications.initialize(
-      const InitializationSettings(android: androidSettings, iOS: iosSettings),
-      onDidReceiveNotificationResponse: (response) => _openNotificationData(response.payload),
-    );
-    const channel = AndroidNotificationChannel(
-      'kalbar_kite_updates', 'Notifikasi Kalbar Kite',
-      description: 'Pengumuman, berita, dan informasi Kalbar Kite',
-      importance: Importance.high,
-      playSound: true,
-    );
-    final androidPlugin = localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-    await androidPlugin?.createNotificationChannel(channel);
-    const socialChannel = AndroidNotificationChannel(
-      'kalbar_kite_social', 'Aktivitas sosial',
-      description: 'Chat, pengikut, suka, komentar, dan story',
-      importance: Importance.high, playSound: true,
-    );
-    await androidPlugin?.createNotificationChannel(socialChannel);
-    final settings = await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
-    if (settings.authorizationStatus == AuthorizationStatus.authorized || settings.authorizationStatus == AuthorizationStatus.provisional) {
-      final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) await _saveNotificationToken(user.uid, token);
-      FirebaseMessaging.instance.onTokenRefresh.listen((value) => _saveNotificationToken(user.uid, value));
+    // Pasang handler UI hanya sekali, tetapi sinkronkan token pada setiap login.
+    if (!_notificationServiceReady) {
+      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const iosSettings = DarwinInitializationSettings();
+      await localNotifications.initialize(
+        const InitializationSettings(android: androidSettings, iOS: iosSettings),
+        onDidReceiveNotificationResponse: (response) => _openNotificationData(response.payload),
+      );
+      const channel = AndroidNotificationChannel(
+        'kalbar_kite_updates', 'Notifikasi Kalbar Kite',
+        description: 'Pengumuman, berita, dan informasi Kalbar Kite',
+        importance: Importance.high,
+        playSound: true,
+      );
+      final androidPlugin = localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      await androidPlugin?.createNotificationChannel(channel);
+      const socialChannel = AndroidNotificationChannel(
+        'kalbar_kite_social', 'Aktivitas sosial',
+        description: 'Chat, pengikut, suka, komentar, dan story',
+        importance: Importance.high, playSound: true,
+      );
+      await androidPlugin?.createNotificationChannel(socialChannel);
+      FirebaseMessaging.onMessage.listen(_showForegroundNotification);
+      FirebaseMessaging.onMessageOpenedApp.listen((message) => _handleNotificationData(message.data));
+      _notificationServiceReady = true;
     }
-    FirebaseMessaging.onMessage.listen(_showForegroundNotification);
-    FirebaseMessaging.onMessageOpenedApp.listen((message) => _handleNotificationData(message.data));
+
+    final settings = await FirebaseMessaging.instance.requestPermission(
+      alert: true, badge: true, sound: true,
+    );
+    debugPrint('FCM permission: ${settings.authorizationStatus} untuk UID ${user.uid}');
+    if (settings.authorizationStatus != AuthorizationStatus.authorized &&
+        settings.authorizationStatus != AuthorizationStatus.provisional) {
+      debugPrint('Token FCM tidak disinkronkan karena izin notifikasi belum diberikan.');
+      return;
+    }
+
+    // Ambil token terbaru setiap login, bukan hanya saat listener pertama dibuat.
+    final token = await FirebaseMessaging.instance.getToken();
+    if (token == null || token.isEmpty) {
+      debugPrint('FCM getToken menghasilkan token kosong.');
+    } else {
+      await _saveNotificationToken(user.uid, token);
+    }
+
+    // Listener global mengambil UID yang sedang login saat token berubah,
+    // bukan UID akun pertama yang kebetulan membuka aplikasi.
+    if (!_notificationTokenRefreshListenerReady) {
+      FirebaseMessaging.instance.onTokenRefresh.listen((value) {
+        final currentUid = _auth.currentUser?.uid;
+        if (currentUid != null && value.isNotEmpty) {
+          unawaited(_saveNotificationToken(currentUid, value));
+        }
+      }, onError: (Object error) {
+        debugPrint('FCM token refresh listener error: $error');
+      });
+      _notificationTokenRefreshListenerReady = true;
+    }
+
     final initial = await FirebaseMessaging.instance.getInitialMessage();
     if (initial != null) _handleNotificationData(initial.data);
-  } catch (error) {
-    debugPrint('Inisialisasi notifikasi gagal: $error');
+  } catch (error, stackTrace) {
+    debugPrint('Inisialisasi/sinkronisasi FCM gagal: $error');
+    debugPrintStack(stackTrace: stackTrace);
     _notificationServiceReady = false;
   }
 }
 
 Future<void> _saveNotificationToken(String uid, String token) async {
-  final tokenId = base64Url.encode(utf8.encode(token)).replaceAll('=', '');
-  await _db.collection('notification_tokens').doc(tokenId).set({
-    'uid': uid, 'token': token, 'platform': Platform.isIOS ? 'ios' : 'android',
-    'updatedAt': FieldValue.serverTimestamp(),
-  }, SetOptions(merge: true));
+  try {
+    final tokenId = base64Url.encode(utf8.encode(token)).replaceAll('=', '');
+    await _db.collection('notification_tokens').doc(tokenId).set({
+      'uid': uid,
+      'token': token,
+      'platform': Platform.isIOS ? 'ios' : 'android',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    debugPrint('FCM token berhasil disimpan untuk UID $uid (doc: $tokenId).');
+  } catch (error, stackTrace) {
+    debugPrint('Gagal menyimpan token FCM ke Firestore: $error');
+    debugPrintStack(stackTrace: stackTrace);
+    rethrow;
+  }
 }
 
 Future<void> _showForegroundNotification(RemoteMessage message) async {
