@@ -405,6 +405,31 @@ Future<void> _saveNotificationToken(String uid, String token) async {
   }
 }
 
+Future<void> _dispatchSocialNotification({required String type, required String id, String itemId = ''}) async {
+  final user = _auth.currentUser;
+  if (user == null || id.trim().isEmpty) return;
+  try {
+    final idToken = await user.getIdToken();
+    if (idToken == null || idToken.isEmpty) return;
+    final response = await http.post(
+      Uri.parse('https://kalbarkite.dcxcomunity.my.id/api/social-notification'),
+      headers: {
+        'Authorization': 'Bearer $idToken',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode({'type': type, 'id': id, 'itemId': itemId}),
+    ).timeout(const Duration(seconds: 12));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      debugPrint('Notifikasi sosial $type gagal (HTTP ${response.statusCode}): ${response.body}');
+    }
+  } catch (error, stackTrace) {
+    // A push failure must never undo a like, follow, comment, message, or story action.
+    debugPrint('Dispatch notifikasi sosial $type gagal: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+}
+
 Future<void> _showForegroundNotification(RemoteMessage message) async {
   // Render text immediately. Downloading optional avatars/images first can
   // hold a foreground notification for many seconds on a slow connection.
@@ -3532,6 +3557,7 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
         'emoji': '',
         'createdAt': FieldValue.serverTimestamp(),
       });
+      unawaited(_dispatchSocialNotification(type: 'story_reply', id: storyId, itemId: replyRef.id));
       final ownerUid = story['uid'] ?? '';
       try {
         await _writeStoryInboxMessage(
@@ -3571,6 +3597,7 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
         'emoji': emoji,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      unawaited(_dispatchSocialNotification(type: 'story_reaction', id: storyId, itemId: myUid));
       if (mounted) setState(() => hasReacted = true);
       final ownerUid = story['uid'] ?? '';
       try {
@@ -4175,6 +4202,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
         await ref.delete();
       } else {
         await ref.set({'followerUid':myUid,'followingUid':widget.uid,'createdAt':FieldValue.serverTimestamp()});
+        unawaited(_dispatchSocialNotification(type: 'follow', id: widget.uid, itemId: DateTime.now().microsecondsSinceEpoch.toString()));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Follow gagal: $e')));
@@ -4411,6 +4439,7 @@ class _PostLikeButton extends StatelessWidget {
                   await mine.delete();
                 } else {
                   await mine.set({'uid':uid,'createdAt':FieldValue.serverTimestamp()});
+                  unawaited(_dispatchSocialNotification(type: 'like', id: postId, itemId: DateTime.now().microsecondsSinceEpoch.toString()));
                 }
               } catch (error) {
                 if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -4749,6 +4778,7 @@ class _ActivityCommentsPageState extends State<ActivityCommentsPage> {
     });
     post!['comments'] = jsonEncode(updated);
     await Store.updateActivityPost(post!);
+    unawaited(_dispatchSocialNotification(type: 'comment', id: post!['id'] ?? '', itemId: (updated.last['date'] ?? '').toString()));
     controller.clear();
     if (mounted) setState(() {});
   }
