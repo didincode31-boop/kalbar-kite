@@ -610,7 +610,8 @@ Future<void> _openStoryNotification(Map<String,dynamic> data) async {
   try {
     await Store.loadActivityFeed();
     final storyId=(data['targetId']??data['routeValue']??'').toString();
-    final target=Store.stories.where((item)=>(item['id']??'')==storyId).firstOrNull;
+    Map<String,String>? target;
+    for(final item in Store.stories){if((item['id']??'')==storyId){target=item;break;}}
     if(target==null){
       appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
       return;
