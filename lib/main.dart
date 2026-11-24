@@ -2469,7 +2469,9 @@ class ExplorePage extends StatelessWidget {
       );
     }).toList();
 
-    return ListView(
+    return Container(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: ListView(
       padding: const EdgeInsets.fromLTRB(0, 0, 0, 24),
       children: [
         const KalbarLiveMap(height: 270),
@@ -2581,7 +2583,7 @@ class ExplorePage extends StatelessWidget {
           ),
         ),
       ],
-    );
+    ));
   }
 }
 
@@ -4895,7 +4897,7 @@ class HomePage extends StatelessWidget {
         Text(title, style: GoogleFonts.fredoka(fontSize: 21, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface, letterSpacing: -.2, height: 1.1)),
         if (subtitle != null) ...[
           const SizedBox(height: 3),
-          Text(subtitle, style: GoogleFonts.inter(fontSize: 13.5, height: 1.3, fontWeight: FontWeight.w500, color: theme.colorScheme.onSurfaceVariant)),
+          Text(subtitle, style: GoogleFonts.manrope(fontSize: 13.5, height: 1.3, fontWeight: FontWeight.w500, color: theme.colorScheme.onSurfaceVariant)),
         ],
       ]),
     );
@@ -5123,7 +5125,7 @@ class _ExploreDashboardPreview extends StatelessWidget {
   const _ExploreDashboardPreview();
   @override Widget build(BuildContext context){
     const cards=[('Wisata Alam','https://www.pesonaindo.com/wp-content/uploads/2016/04/P9203020.jpg',Icons.camera_alt_rounded),('Wisata Budaya','https://awsimages.detik.net.id/community/media/visual/2024/11/07/seni-tato-suku-dayak-iban-2.jpeg?q=90&w=650',Icons.groups_rounded),('Kuliner Khas','https://image.popmama.com/post/20260512/upload_4a7fe54d554ab970173472ff8fa3aa73_2392ba97-ccfb-4c7e-b185-07b1eff66bbc.jpg',Icons.restaurant_rounded),('Produk Lokal (UMKM)','https://jadesta.kemenpar.go.id/imgpost/2022/08/02/tenun-sambas.jpg',Icons.storefront_rounded)];
-    return SizedBox(height:124,child:ListView.separated(scrollDirection:Axis.horizontal,itemCount:cards.length,separatorBuilder:(_,__)=>const SizedBox(width:10),itemBuilder:(context,i){final item=cards[i];return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ExplorePage())),child:ClipRRect(borderRadius:BorderRadius.circular(15),child:SizedBox(width:166,child:Stack(fit:StackFit.expand,children:[CachedNetworkImage(imageUrl:item.$2,fit:BoxFit.cover,errorWidget:(_,__,___)=>Container(color:const Color(0xFFE5EEF8),child:Icon(item.$3))),DecoratedBox(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Colors.black.withValues(alpha:.75)]))),Positioned(left:9,right:8,bottom:9,child:Row(children:[Icon(item.$3,color:Colors.white,size:17),const SizedBox(width:5),Expanded(child:Text(item.$1,maxLines:2,style:GoogleFonts.fredoka(color:Colors.white,fontWeight:FontWeight.w700,fontSize:13)))]))]))));}));
+    return SizedBox(height:124,child:ListView.separated(scrollDirection:Axis.horizontal,itemCount:cards.length,separatorBuilder:(_,__)=>const SizedBox(width:10),itemBuilder:(context,i){final item=cards[i];final description=switch(item.$1){'Wisata Alam'=>'Destinasi alam dan keindahan Kalimantan Barat','Wisata Budaya'=>'Tradisi, festival, dan budaya masyarakat Kalbar','Kuliner Khas'=>'Makanan khas dan kuliner daerah Kalbar',_=>'Produk dan usaha lokal masyarakat Kalbar'};return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>ExploreCategoryPage(title:item.$1,description:description))),child:ClipRRect(borderRadius:BorderRadius.circular(15),child:SizedBox(width:166,child:Stack(fit:StackFit.expand,children:[CachedNetworkImage(imageUrl:item.$2,fit:BoxFit.cover,errorWidget:(_,__,___)=>Container(color:const Color(0xFFE5EEF8),child:Icon(item.$3))),DecoratedBox(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Colors.black.withValues(alpha:.75)]))),Positioned(left:9,right:8,bottom:9,child:Row(children:[Icon(item.$3,color:Colors.white,size:17),const SizedBox(width:5),Expanded(child:Text(item.$1,maxLines:2,style:GoogleFonts.fredoka(color:Colors.white,fontWeight:FontWeight.w600,fontSize:13)))]))]))));}));
   }
 }
 
@@ -8734,6 +8736,8 @@ class _ProfilePageState extends State<ProfilePage> {
         _profileSection('Menu lainnya', [
           _profileTile(Icons.support_agent_outlined, 'Pusat bantuan', 'Bantuan dan kontak resmi Kalbar Kite',
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactPage()))),
+          _profileTile(Icons.shield_outlined, 'Privasi & Kebijakan', 'Ringkasan pengelolaan data pengguna',
+            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()))),
           _profileTile(Icons.verified_outlined, 'Versi aplikasi', 'Kalbar Kite • Versi 1.0.0', null,
             showDivider: false, showArrow: false),
         ]),
