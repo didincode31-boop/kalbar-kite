@@ -5150,7 +5150,7 @@ class _UpcomingAgendaPreview extends StatelessWidget {
                 style: GoogleFonts.fredoka(fontSize: 14, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
               const SizedBox(height: 4),
               Text(event?['title'] ?? 'Belum ada agenda', maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.fredoka(fontSize: 12.5, height: 1.18, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
+                style: GoogleFonts.fredoka(fontSize: 12.5, height: 1.18, fontWeight: FontWeight.w500, color: theme.colorScheme.onSurfaceVariant)),
             ])),
             const Icon(Icons.chevron_right_rounded, size: 18),
           ]),
@@ -8427,6 +8427,35 @@ class _MemberQrScannerPageState extends State<MemberQrScannerPage> {
     }
   }
 
+  Future<void> _pickQrFromGallery() async {
+    if (_openingProfile) return;
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 100,
+      );
+      if (image == null || !mounted) return;
+      final capture = await _cameraController.analyzeImage(image.path);
+      if (!mounted) return;
+      if (capture == null || capture.barcodes.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('QR tidak ditemukan. Pilih gambar yang menampilkan QR dengan jelas.')),
+        );
+        return;
+      }
+      _onDetect(capture);
+      if (!_openingProfile && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('QR pada gambar bukan QR profil Kalbar Kite.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Gambar tidak dapat dipindai. Coba pilih gambar lain.')),
+      );
+    }
+  }
+
   void _onDetect(BarcodeCapture capture) {
     if (_openingProfile) return;
     for (final barcode in capture.barcodes) {
@@ -8541,17 +8570,25 @@ class _MemberQrScannerPageState extends State<MemberQrScannerPage> {
                 ),
                 const Spacer(),
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 26),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha:.35),
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: Text('QR profil Kalbar Kite',
-                      style: GoogleFonts.inter(fontSize: 12, color: Colors.white70,
-                        fontWeight: FontWeight.w600)),
+                  padding: const EdgeInsets.fromLTRB(22, 0, 22, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      FilledButton.icon(
+                        onPressed: _openingProfile ? null : _pickQrFromGallery,
+                        icon: const Icon(Icons.photo_library_outlined),
+                        label: Text('Pilih dari Galeri', style: GoogleFonts.fredoka(fontWeight: FontWeight.w600)),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: Colors.white,
+                          foregroundColor: const Color(0xFF173B5A),
+                          minimumSize: const Size.fromHeight(48),
+                        ),
+                      ),
+                      const SizedBox(height: 9),
+                      Text('Atau arahkan kamera ke QR profil Kalbar Kite',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.inter(fontSize: 12, color: Colors.white70, fontWeight: FontWeight.w500)),
+                    ],
                   ),
                 ),
               ],
