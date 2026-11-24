@@ -34,6 +34,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 part 'messaging.dart';
 
@@ -313,6 +314,8 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 Future<void> _initializeNotifications(User user) async {
   try {
+    // Kaitkan subscription OneSignal dengan UID Firebase agar notifikasi bisa ditargetkan per akun.
+    await OneSignal.login(user.uid);
     // Pasang handler UI hanya sekali, tetapi sinkronkan token pada setiap login.
     if (!_notificationServiceReady) {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -350,6 +353,9 @@ Future<void> _initializeNotifications(User user) async {
       debugPrint('Token FCM tidak disinkronkan karena izin notifikasi belum diberikan.');
       return;
     }
+
+    // Izin sudah diberikan lewat Firebase Messaging; sinkronkan status push OneSignal tanpa prompt tambahan.
+    await OneSignal.Notifications.requestPermission(false);
 
     // Ambil token terbaru setiap login, bukan hanya saat listener pertama dibuat.
     final token = await FirebaseMessaging.instance.getToken();
@@ -556,6 +562,7 @@ Future<void> main() async {
   // Use TextureView on Android to prevent black SurfaceView composition glitches.
   MapLibreMap.useHybridComposition = true;
   await Firebase.initializeApp(options: _firebaseOptions);
+  await OneSignal.initialize('0b8c35e9-4c54-48a8-927d-42e1e86e6229');
   await Store.initialize();
   runApp(const App());
   // Muat identitas publik sekali saat aplikasi dibuka, termasuk sebelum login.
