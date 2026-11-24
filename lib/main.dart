@@ -316,7 +316,7 @@ Future<NotificationDetails> _socialNotificationDetails(Map<String,dynamic> data)
     android:AndroidNotificationDetails(
       'kalbar_kite_social','Aktivitas Kalbar Kite',
       channelDescription:'Chat, pengikut, suka, komentar, dan story',
-      icon:'ic_stat_kalbar_kite',
+      icon:'ic_launcher',
       importance:Importance.max,priority:Priority.high,
       category:isChat?AndroidNotificationCategory.message:AndroidNotificationCategory.social,
       visibility:NotificationVisibility.private,
@@ -423,7 +423,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options:_firebaseOptions);
   await localNotifications.initialize(
     const InitializationSettings(
-      android:AndroidInitializationSettings('ic_stat_kalbar_kite'),
+      android:AndroidInitializationSettings('@mipmap/ic_launcher'),
       iOS:DarwinInitializationSettings(),
     ),
     onDidReceiveBackgroundNotificationResponse:_notificationActionBackground,
@@ -450,7 +450,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       const NotificationDetails(android:AndroidNotificationDetails(
         'kalbar_kite_updates','Notifikasi Kalbar Kite',
         channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
-        icon:'ic_stat_kalbar_kite',importance:Importance.high,priority:Priority.high,
+        icon:'ic_launcher',importance:Importance.high,priority:Priority.high,
       )),
       payload:jsonEncode(data),
     );
@@ -460,11 +460,18 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> _initializeNotifications(User user) async {
   try {
     // Kaitkan subscription OneSignal dengan UID Firebase agar notifikasi bisa ditargetkan per akun.
-    await OneSignal.login(user.uid);
+    try {
+      await OneSignal.login(user.uid);
+    } catch (error, stackTrace) {
+      // OneSignal is optional here; FCM is the active delivery path.
+      // A OneSignal login error must never disable Firebase notification setup.
+      debugPrint('OneSignal login dilewati, FCM tetap dilanjutkan: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
     // Pasang handler UI hanya sekali, tetapi sinkronkan token pada setiap login.
     if (!_notificationServiceReady) {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-      const androidSettings = AndroidInitializationSettings('ic_stat_kalbar_kite');
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
       const iosSettings = DarwinInitializationSettings();
       await localNotifications.initialize(
         const InitializationSettings(android: androidSettings, iOS: iosSettings),
@@ -593,7 +600,7 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
     android:AndroidNotificationDetails(
       'kalbar_kite_updates','Notifikasi Kalbar Kite',
       channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
-      icon:'ic_stat_kalbar_kite',importance:Importance.high,priority:Priority.high,
+      icon:'ic_launcher',importance:Importance.high,priority:Priority.high,
       showWhen:true,when:DateTime.now().millisecondsSinceEpoch,
     ),
     iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:true),
