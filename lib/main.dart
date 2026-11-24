@@ -1713,9 +1713,9 @@ class App extends StatelessWidget {
     final accent = dark ? const Color(0xFFE5E5E5) : const Color(0xFF171717);
     // Inter is a clean, highly legible sans-serif with strong bold weights.
     // Rounded Fredoka display paired with Manrope's clean, iOS-like text rhythm.
-    final textFont = GoogleFonts.manrope().fontFamily!;
+    final textFont = GoogleFonts.inter().fontFamily!;
     final displayFont = GoogleFonts.fredoka().fontFamily!;
-    final roundedFont = GoogleFonts.manrope().fontFamily!;
+    final roundedFont = GoogleFonts.inter().fontFamily!;
     final navigationFont = GoogleFonts.fredoka().fontFamily!;
     final baseTextTheme = ThemeData(brightness: brightness).textTheme.apply(
       bodyColor: foreground, displayColor: foreground, fontFamily: textFont,
@@ -8130,7 +8130,7 @@ class _DictionaryPageState extends State<DictionaryPage> {
             fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
           const SizedBox(height: 3),
           Text('${item['language'] ?? 'Daerah'} • ${item['meaning'] ?? ''}',
-            style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w400, color: theme.colorScheme.onSurfaceVariant)),
         ])),
         IconButton(
           tooltip: favorite ? 'Hapus dari favorit' : 'Tambah ke favorit',
@@ -9138,8 +9138,8 @@ class _ProfilePageState extends State<ProfilePage> {
         title: Text(title, style: GoogleFonts.fredoka(fontSize: 16,
           fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
         subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500,
-            color: theme.colorScheme.onSurfaceVariant)),
+          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500,
+            height: 1.25, color: theme.colorScheme.onSurfaceVariant)),
         trailing: showArrow ? Icon(CupertinoIcons.chevron_right, size: 18,
           color: theme.colorScheme.onSurfaceVariant) : null,
       ),
