@@ -5008,7 +5008,22 @@ class _LiveWeatherCardState extends State<_LiveWeatherCard> {
   String _label(int c){if(c==0)return 'Cerah';if(c==1||c==2)return 'Cerah berawan';if(c==3)return 'Berawan';if(c==45||c==48)return 'Berkabut';if(c>=51&&c<=67)return 'Gerimis / hujan';if(c>=80&&c<=82)return 'Hujan';if(c>=95)return 'Badai petir';return 'Kondisi cuaca berubah';}
   @override Widget build(BuildContext context){
     final dark=Theme.of(context).brightness==Brightness.dark;final fg=dark?Colors.white:const Color(0xFF173B5A);
-    return Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(gradient:LinearGradient(colors:dark?[const Color(0xFF203D5B),const Color(0xFF26334E)]:[const Color(0xFFD8EEFF),const Color(0xFFEAF4FF]),),borderRadius:BorderRadius.circular(18),border:Border.all(color:Theme.of(context).dividerColor.withValues(alpha:.4))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+    return Container(
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: dark
+              ? const [Color(0xFF203D5B), Color(0xFF26334E)]
+              : const [Color(0xFFD8EEFF), Color(0xFFEAF4FF)],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: Theme.of(context).dividerColor.withValues(alpha: 0.4),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
       Row(children:[Icon(Icons.location_on_outlined,size:16,color:fg),const SizedBox(width:4),Expanded(child:Text(place,maxLines:1,overflow:TextOverflow.ellipsis,style:TextStyle(color:fg,fontWeight:FontWeight.w700))),IconButton(onPressed:loading?null:(){setState(() { loading=true; error=null; });_load();},icon:const Icon(Icons.refresh_rounded,size:19))]),
       Row(children:[Icon(code==0?Icons.wb_sunny_rounded:Icons.cloud_rounded,size:45,color:dark?const Color(0xFFFFD166):const Color(0xFF287FC0)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(loading?'Memuat…':(temp==null?'--°C':temp!.round().toString()+'°C'),style:GoogleFonts.fredoka(fontSize:32,fontWeight:FontWeight.w700,color:fg)),Text(condition,style:TextStyle(color:fg,fontWeight:FontWeight.w700)),if(error!=null)Text(error!,style:TextStyle(color:fg,fontSize:11))]))]),
       const Divider(height:18),
