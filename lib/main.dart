@@ -283,31 +283,176 @@ final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificat
 bool _notificationServiceReady = false;
 bool _notificationTokenRefreshListenerReady = false;
 
+Future<String?> _cacheNotificationAvatar(String rawUrl, String actorUid) async {
+  final url=rawUrl.trim();
+  if(!url.startsWith('https://'))return null;
+  try{
+    final response=await http.get(Uri.parse(url)).timeout(const Duration(seconds:5));
+    if(response.statusCode!=200||response.bodyBytes.isEmpty||response.bodyBytes.length>2*1024*1024)return null;
+    final directory=await getTemporaryDirectory();
+    final safeId=actorUid.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'),'_');
+    final file=File('${directory.path}/kalbar-avatar-${safeId.isEmpty?'sender':safeId}.img');
+    await file.writeAsBytes(response.bodyBytes,flush:true);
+    return file.path;
+  }catch(error){debugPrint('Avatar notifikasi gagal dimuat: $error');return null;}
+}
+
+Future<NotificationDetails> _socialNotificationDetails(Map<String,dynamic> data) async {
+  final event=(data['event']??'').toString();
+  final isChat=event=='chat';
+  final actorName=(data['actorName']??'Pengguna Kalbar Kite').toString();
+  final body=(data['body']??'Ada aktivitas baru untukmu.').toString();
+  final avatarPath=await _cacheNotificationAvatar((data['avatarUrl']??'').toString(),(data['actorUid']??'').toString());
+  final actions=<AndroidNotificationAction>[
+    if(isChat) AndroidNotificationAction(
+      'reply','Balas',
+      inputs: <AndroidNotificationActionInput>[AndroidNotificationActionInput(label:'Tulis balasan...')],
+      showsUserInterface:false,cancelNotification:false,allowGeneratedReplies:true,
+    ),
+    if(isChat) const AndroidNotificationAction('mark_read','Tandai dibaca',showsUserInterface:false,cancelNotification:true),
+  ];
+  final eventAt=DateTime.tryParse((data['eventAt']??'').toString())??DateTime.now();
+  return NotificationDetails(
+    android:AndroidNotificationDetails(
+      'kalbar_kite_social','Aktivitas Kalbar Kite',
+      channelDescription:'Chat, pengikut, suka, komentar, dan story',
+      icon:'ic_stat_kalbar_kite',
+      importance:Importance.max,priority:Priority.high,
+      category:isChat?AndroidNotificationCategory.message:AndroidNotificationCategory.social,
+      visibility:NotificationVisibility.private,
+      showWhen:true,when:eventAt.millisecondsSinceEpoch,
+      largeIcon:avatarPath==null?null:FilePathAndroidBitmap(avatarPath),
+      styleInformation:BigTextStyleInformation(
+        body,contentTitle:actorName,summaryText:'Kalbar Kite',
+      ),
+      actions:actions,
+      groupKey:isChat?'kalbar_kite_chat_${data['chatId']??'inbox'}':'kalbar_kite_social',
+      setAsGroupSummary:false,autoCancel:true,onlyAlertOnce:false,
+    ),
+    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:true),
+  );
+}
+
+Future<void> _sendNotificationReply(Map<String,dynamic> data,String rawReply) async {
+  final reply=rawReply.trim();
+  if(reply.isEmpty)return;
+  final user=FirebaseAuth.instance.currentUser;
+  if(user==null)throw Exception('Sesi login tidak tersedia. Buka Kalbar Kite lalu coba balas lagi.');
+  final chatId=(data['chatId']??'').toString();
+  final peerUid=(data['peerUid']??data['actorUid']??'').toString();
+  if(chatId.isEmpty||peerUid.isEmpty||peerUid==user.uid)throw Exception('Tujuan chat notifikasi tidak valid.');
+  final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
+  final chat=await chatRef.get();
+  final participants=List<String>.from(chat.data()?['participants']??const <String>[]);
+  if(!chat.exists||!participants.contains(user.uid)||!participants.contains(peerUid))throw Exception('Kamu bukan peserta percakapan ini.');
+  final messageRef=chatRef.collection('messages').doc();
+  await messageRef.set({
+    'senderUid':user.uid,'receiverUid':peerUid,'type':'text','text':reply,
+    'url':'','fileName':'','createdAt':FieldValue.serverTimestamp(),'read':false,
+  });
+  await chatRef.set({
+    'lastMessage':reply,'lastSenderUid':user.uid,'lastMessageRead':false,
+    'lastMessageAt':FieldValue.serverTimestamp(),
+  },SetOptions(merge:true));
+  try{
+    final token=await user.getIdToken();
+    if(token!=null&&token.isNotEmpty){
+      await http.post(Uri.parse('https://kalbarkite.dcxcomunity.my.id/api/social-notification'),
+        headers:{'Authorization':'Bearer $token','Content-Type':'application/json'},
+        body:jsonEncode({'type':'chat','id':chatId,'itemId':messageRef.id}),
+      ).timeout(const Duration(seconds:8));
+    }
+  }catch(error){debugPrint('Push balasan dari notifikasi gagal: $error');}
+}
+
+Future<void> _markNotificationChatRead(Map<String,dynamic> data) async {
+  final user=FirebaseAuth.instance.currentUser;
+  if(user==null)return;
+  final chatId=(data['chatId']??'').toString();
+  if(chatId.isEmpty)return;
+  final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
+  final page=await chatRef.collection('messages').where('receiverUid',isEqualTo:user.uid).where('read',isEqualTo:false).limit(400).get();
+  if(page.docs.isNotEmpty){
+    final batch=FirebaseFirestore.instance.batch();
+    for(final doc in page.docs){batch.update(doc.reference,{'read':true});}
+    await batch.commit();
+  }
+  await chatRef.set({'lastMessageRead':true},SetOptions(merge:true));
+}
+
+void _handleNotificationResponse(NotificationResponse response) {
+  final payload=response.payload;
+  if(payload==null||payload.isEmpty)return;
+  try{
+    final data=Map<String,dynamic>.from(jsonDecode(payload) as Map);
+    if(response.actionId=='reply'){
+      unawaited(_sendNotificationReply(data,response.input??'').catchError((error){debugPrint('Balasan notifikasi gagal: $error');}));
+    }else if(response.actionId=='mark_read'){
+      unawaited(_markNotificationChatRead(data).catchError((error){debugPrint('Tandai dibaca gagal: $error');}));
+    }else{
+      _handleNotificationData(data);
+    }
+  }catch(error){debugPrint('Aksi notifikasi tidak valid: $error');}
+}
+
+@pragma('vm:entry-point')
+void _notificationActionBackground(NotificationResponse response) {
+  unawaited(_processNotificationActionBackground(response));
+}
+
+@pragma('vm:entry-point')
+Future<void> _processNotificationActionBackground(NotificationResponse response) async {
+  try{
+    await Firebase.initializeApp(options:_firebaseOptions);
+    final payload=response.payload;
+    if(payload==null||payload.isEmpty)return;
+    final data=Map<String,dynamic>.from(jsonDecode(payload) as Map);
+    if(response.actionId=='reply'){
+      await _sendNotificationReply(data,response.input??'');
+    }else if(response.actionId=='mark_read'){
+      await _markNotificationChatRead(data);
+    }
+  }catch(error,stackTrace){
+    debugPrint('Aksi notifikasi latar belakang gagal: $error');
+    debugPrintStack(stackTrace:stackTrace);
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: _firebaseOptions);
-  // Notification payloads are normally displayed by the OS in background.
-  // Data-only payloads need a local notification because they have no OS alert.
-  if (message.notification == null) {
-    final data = message.data;
-    final title = (data['title'] ?? data['senderName'] ?? 'Kalbar Kite').toString();
-    final body = (data['body'] ?? 'Ada aktivitas baru untukmu.').toString();
-    final eventAt = DateTime.tryParse((data['eventAt'] ?? '').toString()) ?? DateTime.now();
-    final notificationId = (data['notificationId'] ?? message.messageId ?? '').toString();
+  await Firebase.initializeApp(options:_firebaseOptions);
+  await localNotifications.initialize(
+    const InitializationSettings(
+      android:AndroidInitializationSettings('ic_stat_kalbar_kite'),
+      iOS:DarwinInitializationSettings(),
+    ),
+    onDidReceiveBackgroundNotificationResponse:_notificationActionBackground,
+  );
+  final androidPlugin=localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
+    'kalbar_kite_social','Aktivitas Kalbar Kite',
+    description:'Chat, pengikut, suka, komentar, dan story',
+    importance:Importance.max,playSound:true,
+  ));
+  final data=message.data;
+  if(data['type']=='social'){
+    final title=(data['actorName']??'Kalbar Kite').toString();
+    final body=(data['body']??'Ada aktivitas baru untukmu.').toString();
+    final rawId=(data['notificationId']??message.messageId??'').toString();
+    final id=rawId.isEmpty?DateTime.now().millisecondsSinceEpoch:rawId.hashCode&0x7fffffff;
+    await localNotifications.show(id,title,body,await _socialNotificationDetails(data),payload:jsonEncode(data));
+  }else if(message.notification==null){
+    final title=(data['title']??'Kalbar Kite').toString();
+    final body=(data['body']??'Ada informasi baru untukmu.').toString();
     await localNotifications.show(
-      notificationId.isNotEmpty ? notificationId.hashCode : DateTime.now().millisecondsSinceEpoch.remainder(1 << 31),
-      title,
-      body,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          'kalbar_kite_social', 'Aktivitas sosial',
-          channelDescription: 'Chat, pengikut, suka, komentar, dan story',
-          importance: Importance.high, priority: Priority.high, playSound: true,
-          showWhen: true, when: eventAt.millisecondsSinceEpoch,
-        ),
-        iOS: const DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),
-      ),
-      payload: jsonEncode(data),
+      (data['notificationId']??message.messageId??DateTime.now().millisecondsSinceEpoch.toString()).hashCode&0x7fffffff,
+      title,body,
+      const NotificationDetails(android:AndroidNotificationDetails(
+        'kalbar_kite_updates','Notifikasi Kalbar Kite',
+        channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
+        icon:'ic_stat_kalbar_kite',importance:Importance.high,priority:Priority.high,
+      )),
+      payload:jsonEncode(data),
     );
   }
 }
@@ -319,12 +464,17 @@ Future<void> _initializeNotifications(User user) async {
     // Pasang handler UI hanya sekali, tetapi sinkronkan token pada setiap login.
     if (!_notificationServiceReady) {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const androidSettings = AndroidInitializationSettings('ic_stat_kalbar_kite');
       const iosSettings = DarwinInitializationSettings();
       await localNotifications.initialize(
         const InitializationSettings(android: androidSettings, iOS: iosSettings),
-        onDidReceiveNotificationResponse: (response) => _openNotificationData(response.payload),
+        onDidReceiveNotificationResponse: _handleNotificationResponse,
+        onDidReceiveBackgroundNotificationResponse: _notificationActionBackground,
       );
+      final launchDetails = await localNotifications.getNotificationAppLaunchDetails();
+      if (launchDetails?.didNotificationLaunchApp == true && launchDetails?.notificationResponse != null) {
+        _handleNotificationResponse(launchDetails!.notificationResponse!);
+      }
       const channel = AndroidNotificationChannel(
         'kalbar_kite_updates', 'Notifikasi Kalbar Kite',
         description: 'Pengumuman, berita, dan informasi Kalbar Kite',
@@ -431,31 +581,24 @@ Future<void> _dispatchSocialNotification({required String type, required String 
 }
 
 Future<void> _showForegroundNotification(RemoteMessage message) async {
-  // Render text immediately. Downloading optional avatars/images first can
-  // hold a foreground notification for many seconds on a slow connection.
-  final data = message.data;
-  final title = message.notification?.title ?? (data['title'] ?? 'Kalbar Kite').toString();
-  final body = message.notification?.body ?? (data['body'] ?? 'Ada informasi baru untukmu.').toString();
-  final eventAt = DateTime.tryParse((data['eventAt'] ?? '').toString()) ?? DateTime.now();
-  final notificationId = (data['notificationId'] ?? message.messageId ?? '').toString();
-  final isChatNotification = const {'chat', 'story_reply', 'story_reaction'}.contains(data['type']);
-
-  await localNotifications.show(
-    notificationId.isNotEmpty ? notificationId.hashCode : message.hashCode,
-    title,
-    body,
-    NotificationDetails(
-      android: AndroidNotificationDetails(
-        isChatNotification ? 'kalbar_kite_social' : 'kalbar_kite_updates',
-        isChatNotification ? 'Pesan chat' : 'Notifikasi Kalbar Kite',
-        channelDescription: isChatNotification ? 'Pesan baru di Kalbar Kite' : 'Pengumuman, berita, dan informasi Kalbar Kite',
-        importance: Importance.high, priority: Priority.high, playSound: true,
-        showWhen: true, when: eventAt.millisecondsSinceEpoch,
-      ),
-      iOS: const DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),
+  final data=message.data;
+  final isSocial=data['type']=='social';
+  final title=isSocial?(data['actorName']??'Kalbar Kite').toString()
+      :(message.notification?.title??(data['title']??'Kalbar Kite').toString());
+  final body=isSocial?(data['body']??'Ada aktivitas baru untukmu.').toString()
+      :(message.notification?.body??(data['body']??'Ada informasi baru untukmu.').toString());
+  final rawId=(data['notificationId']??message.messageId??'').toString();
+  final id=rawId.isEmpty?message.hashCode:rawId.hashCode&0x7fffffff;
+  final details=isSocial?await _socialNotificationDetails(data):NotificationDetails(
+    android:AndroidNotificationDetails(
+      'kalbar_kite_updates','Notifikasi Kalbar Kite',
+      channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
+      icon:'ic_stat_kalbar_kite',importance:Importance.high,priority:Priority.high,
+      showWhen:true,when:DateTime.now().millisecondsSinceEpoch,
     ),
-    payload: jsonEncode(data),
+    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:true),
   );
+  await localNotifications.show(id,title,body,details,payload:jsonEncode(data));
 }
 
 void _openNotificationData(String? payload) {
@@ -476,10 +619,19 @@ void _handleNotificationData(Map<String, dynamic> data) {
   } else if (routeType == 'dashboard_info') {
     appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   } else if (routeType == 'chat') {
-    final peerUid = (data['peerUid'] ?? routeValue).toString();
+    final peerUid = (data['peerUid'] ?? data['actorUid'] ?? routeValue).toString();
     if (peerUid.isNotEmpty && peerUid != _auth.currentUser?.uid) {
       appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ChatThreadPage(peerUid: peerUid)));
     }
+  } else if (routeType == 'profile') {
+    final uid=(data['targetId']??routeValue).toString();
+    if(uid.isNotEmpty&&uid!=_auth.currentUser?.uid){
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => PublicProfilePage(uid:uid)));
+    }
+  } else if (routeType == 'activity') {
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const ActivityPage()));
+  } else if (routeType == 'home') {
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   } else if (routeType == 'dashboard') {
     appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   }
