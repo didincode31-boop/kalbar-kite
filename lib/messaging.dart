@@ -644,6 +644,7 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
         'followingUid': widget.peerUid,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      unawaited(_dispatchSocialNotification(type: 'follow', id: widget.peerUid, itemId: DateTime.now().microsecondsSinceEpoch.toString()));
       if (mounted) {
         setState(() => _followingPeer = true);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -711,6 +712,7 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
         'text': text, 'url': url, 'fileName': fileName, ...extra,
         'createdAt': FieldValue.serverTimestamp(), 'read': false,
       });
+      unawaited(_dispatchSocialNotification(type: 'chat', id: _chatId, itemId: messageRef.id));
       _text.clear();
     } catch (error) {
       if (mounted) {
