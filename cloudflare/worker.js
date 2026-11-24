@@ -30,16 +30,48 @@ async function writeDoc(project,token,col,id,data){const url=docPath(project,col
 async function deleteDoc(project,token,col,id){const r=await fetch(docPath(project,col,id),{method:"DELETE",headers:{authorization:"Bearer "+token}});if(!r.ok&&r.status!==404)throw Error("Firestore delete gagal: "+(await r.text()).slice(0,300))}
 async function verifyUser(request,env,project,access){const bearer=request.headers.get("authorization")||"",idToken=bearer.startsWith("Bearer ")?bearer.slice(7):"";if(!idToken)throw Object.assign(Error("Login diperlukan."),{status:401});const url="https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="+encodeURIComponent(env.FIREBASE_WEB_API_KEY||"");const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken})}),d=await r.json();if(!r.ok||!d.users?.[0])throw Object.assign(Error("Sesi Firebase tidak valid."),{status:401});return{uid:d.users[0].localId,email:d.users[0].email||""}}
 async function getNestedDoc(project,token,path){const r=await fetch(API+"/projects/"+encodeURIComponent(project)+"/databases/(default)/documents/"+path,{headers:{authorization:"Bearer "+token}});if(r.status===404)return null;const d=await r.json();if(!r.ok)throw Error("Firestore read gagal.");return fromFields(d.fields)}
-async function sendSocialFcm(project,access,sa,recipient,title,body,data){
+async function sendSocialFcm(project,access,sa,recipient,title,body,data,env){
+  const payloadData=Object.fromEntries(Object.entries({...data,title,body,eventAt:new Date().toISOString()}).map(([k,v])=>[k,String(v??"")]));
+  // Prefer the existing OneSignal subscription linked by OneSignal.login(firebaseUid).
+  // If OneSignal is unavailable or the recipient has no subscription, fall back to FCM.
+  if(env.ONESIGNAL_APP_ID&&env.ONESIGNAL_REST_API_KEY){
+    try{
+      const payload={
+        app_id:env.ONESIGNAL_APP_ID,
+        include_aliases:{external_id:[recipient]},
+        target_channel:"push",
+        headings:{en:title,id:title},
+        contents:{en:body,id:body},
+        data:payloadData,
+        priority:10
+      };
+      if(data.avatarUrl&&/^https:\/\//i.test(String(data.avatarUrl)))payload.large_icon=String(data.avatarUrl);
+      const response=await fetch("https://api.onesignal.com/notifications",{
+        method:"POST",
+        headers:{Authorization:"Key "+env.ONESIGNAL_REST_API_KEY,"Content-Type":"application/json"},
+        body:JSON.stringify(payload)
+      });
+      const result=await response.json().catch(()=>({}));
+      if(response.ok&&result.id)return{sent:1,failed:0,provider:"onesignal",notificationId:result.id};
+      console.error("OneSignal social push gagal; mencoba FCM fallback:",JSON.stringify(result).slice(0,500));
+    }catch(error){
+      console.error("OneSignal social push error; mencoba FCM fallback:",error.message);
+    }
+  }
   const devices=await query(project,access,"notification_tokens","uid",recipient,5000);
   const rows=devices.filter(x=>typeof x.data?.token==="string"&&x.data.token.length>20);
-  if(!rows.length)throw Object.assign(Error("Penerima belum memiliki perangkat FCM terdaftar. Buka Kalbar Kite sekali lalu coba lagi."),{status:409});
+  if(!rows.length)throw Object.assign(Error("OneSignal tidak berhasil dan penerima belum memiliki token FCM terdaftar."),{status:409});
   const token=await getAccessToken(sa,FCM_SCOPE),endpoint="https://fcm.googleapis.com/v1/projects/"+encodeURIComponent(project)+"/messages:send";
-  const payloadData=Object.fromEntries(Object.entries({...data,title,body,eventAt:new Date().toISOString()}).map(([k,v])=>[k,String(v??"")]));
   let sent=0,failed=0;const errors=[];
   await Promise.all(rows.map(async row=>{
     try{
-      const message={token:row.data.token,data:payloadData,android:{priority:"HIGH",ttl:"86400s"}};
+      const message={
+        token:row.data.token,
+        notification:{title,body},
+        data:payloadData,
+        android:{priority:"HIGH",ttl:"86400s",notification:{channel_id:"kalbar_kite_social",sound:"default",priority:"MAX"}},
+        apns:{headers:{"apns-priority":"10"},payload:{aps:{sound:"default",contentAvailable:true}}}
+      };
       const response=await fetch(endpoint,{method:"POST",headers:{authorization:"Bearer "+token,"content-type":"application/json"},body:JSON.stringify({message})});
       const result=await response.json().catch(()=>({}));
       if(!response.ok){failed++;if(errors.length<4)errors.push(String(result.error?.message||response.status));return;}
@@ -47,7 +79,7 @@ async function sendSocialFcm(project,access,sa,recipient,title,body,data){
     }catch(error){failed++;if(errors.length<4)errors.push(error.message);}
   }));
   if(!sent)throw Object.assign(Error("FCM gagal mengirim notifikasi: "+errors.join("; ").slice(0,300)),{status:502});
-  return{sent,failed};
+  return{sent,failed,provider:"fcm"};
 }
 async function handleSocialNotification(request,env,project,access){
   const actor=await verifyUser(request,env,project,access),b=await request.json(),type=String(b.type||''),id=String(b.id||''),itemId=String(b.itemId||'');
@@ -92,7 +124,7 @@ async function handleSocialNotification(request,env,project,access){
   const eventKey=[type,id,actor.uid,itemId||'default'].join('_').replace(/[^a-zA-Z0-9_-]/g,'_').slice(0,240),existing=await getDoc(project,access,'notification_dispatches',eventKey);
   if(existing)return json({ok:true,duplicate:true});
   const sa=JSON.parse(env.FIREBASE_SERVICE_ACCOUNT||"{}");
-  const result=await sendSocialFcm(project,access,sa,recipient,title,body,data);
+  const result=await sendSocialFcm(project,access,sa,recipient,title,body,data,env);
   await writeDoc(project,access,'notification_dispatches',eventKey,{type,actorUid:actor.uid,recipientUid:recipient,createdAt:new Date().toISOString(),sent:result.sent});
   return json({ok:true,...result});
 }
