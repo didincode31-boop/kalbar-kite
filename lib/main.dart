@@ -606,6 +606,21 @@ void _openNotificationData(String? payload) {
   try { _handleNotificationData(Map<String, dynamic>.from(jsonDecode(payload) as Map)); } catch (_) {}
 }
 
+Future<void> _openActivityNotification(Map<String,dynamic> data) async {
+  try {
+    await Store.loadActivityFeed();
+    final postId=(data['targetId']??data['routeValue']??'').toString();
+    if(data['event']=='comment'&&postId.isNotEmpty){
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ActivityCommentsPage(postId:postId)));
+    }else{
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const ActivityPage()));
+    }
+  }catch(error){
+    debugPrint('Target aktivitas tidak dapat dibuka: $error');
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const ActivityPage()));
+  }
+}
+
 void _handleNotificationData(Map<String, dynamic> data) {
   final routeType = (data['routeType'] ?? 'none').toString();
   final routeValue = (data['routeValue'] ?? '').toString();
@@ -629,7 +644,7 @@ void _handleNotificationData(Map<String, dynamic> data) {
       appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => PublicProfilePage(uid:uid)));
     }
   } else if (routeType == 'activity') {
-    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const ActivityPage()));
+    unawaited(_openActivityNotification(data));
   } else if (routeType == 'home') {
     appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   } else if (routeType == 'dashboard') {
