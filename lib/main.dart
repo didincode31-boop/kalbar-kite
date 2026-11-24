@@ -4919,7 +4919,7 @@ class HomePage extends StatelessWidget {
         const WelcomeBanner(),
         const SizedBox(height: 14),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Expanded(child: const _LiveWeatherCard(compact: true)),
             const SizedBox(width: 10),
