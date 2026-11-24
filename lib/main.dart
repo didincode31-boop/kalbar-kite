@@ -606,6 +606,31 @@ void _openNotificationData(String? payload) {
   try { _handleNotificationData(Map<String, dynamic>.from(jsonDecode(payload) as Map)); } catch (_) {}
 }
 
+Future<void> _openStoryNotification(Map<String,dynamic> data) async {
+  try {
+    await Store.loadActivityFeed();
+    final storyId=(data['targetId']??data['routeValue']??'').toString();
+    final target=Store.stories.where((item)=>(item['id']??'')==storyId).firstOrNull;
+    if(target==null){
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
+      return;
+    }
+    final owner=(target['uid']??'').toString();
+    final ownerStories=Store.stories.where((item)=>(item['uid']??'')==owner).toList();
+    final targetIndex=ownerStories.indexWhere((item)=>(item['id']??'')==storyId);
+    if(targetIndex>0){
+      final ordered=<Map<String,String>>[...ownerStories.skip(targetIndex),...ownerStories.take(targetIndex)];
+      ownerStories
+        ..clear()
+        ..addAll(ordered);
+    }
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => StoryViewerPage(stories:ownerStories)));
+  }catch(error){
+    debugPrint('Story dari notifikasi tidak dapat dibuka: $error');
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
+  }
+}
+
 Future<void> _openActivityNotification(Map<String,dynamic> data) async {
   try {
     await Store.loadActivityFeed();
@@ -645,6 +670,8 @@ void _handleNotificationData(Map<String, dynamic> data) {
     }
   } else if (routeType == 'activity') {
     unawaited(_openActivityNotification(data));
+  } else if (routeType == 'story') {
+    unawaited(_openStoryNotification(data));
   } else if (routeType == 'home') {
     appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   } else if (routeType == 'dashboard') {
