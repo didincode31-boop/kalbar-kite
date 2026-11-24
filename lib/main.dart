@@ -513,6 +513,8 @@ String _authMessage(String code) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Use TextureView on Android to prevent black SurfaceView composition glitches.
+  MapLibreMap.useHybridComposition = true;
   await Firebase.initializeApp(options: _firebaseOptions);
   await Store.initialize();
   runApp(const App());
@@ -2348,15 +2350,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       ),
       const SizedBox(width: 6),
     ]),
-    body: IndexedStack(index: tab, children: const [HomePage(), ActivityPage(), ChatListPage(embedded: true), InfoPage(), ProfilePage()]),
+    body: IndexedStack(index: tab, children: const [HomePage(), InfoPage(), ActivityPage(), ChatListPage(embedded: true), ProfilePage()]),
     bottomNavigationBar: _iosBottomBar(context, NavigationBar(
       selectedIndex: tab,
       onDestinationSelected: (v) => setState(() => tab = v),
       destinations: const [
         NavigationDestination(icon: Icon(CupertinoIcons.house), selectedIcon: Icon(CupertinoIcons.house_fill), label: 'Home'),
+        NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
         NavigationDestination(icon: Icon(CupertinoIcons.square_grid_2x2), selectedIcon: Icon(CupertinoIcons.square_grid_2x2_fill), label: 'Posting'),
         NavigationDestination(icon: Icon(CupertinoIcons.chat_bubble_2), selectedIcon: Icon(CupertinoIcons.chat_bubble_2_fill), label: 'Chat'),
-        NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
         NavigationDestination(icon: Icon(CupertinoIcons.person), selectedIcon: Icon(CupertinoIcons.person_fill), label: 'Profile'),
       ],
     )),
@@ -2704,9 +2706,9 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
   bool _styleReady = false;
   bool _dark = false;
   bool _locating = false;
-  String _message = 'Mencari lokasi perangkat…';
+  String _message = 'Menampilkan Tugu Khatulistiwa, Pontianak';
 
-  static const LatLng _kalbarCenter = LatLng(0.25, 109.55);
+  static const LatLng _kalbarCenter = LatLng(0.000919, 109.322389);
   String get _style => _dark
       ? 'https://tiles.openfreemap.org/styles/dark'
       : 'https://tiles.openfreemap.org/styles/liberty';
@@ -2836,7 +2838,7 @@ class _ExploreMapPageState extends State<ExploreMapPage> {
               styleString: _style,
               initialCameraPosition: const CameraPosition(
                 target: _kalbarCenter,
-                zoom: 7.1,
+                zoom: 14.2,
               ),
               onMapCreated: _onMapCreated,
               onStyleLoadedCallback: _onStyleLoaded,
@@ -4968,7 +4970,7 @@ class HomePage extends StatelessWidget {
             Expanded(child: _sectionTitle(context, 'Jelajahi Kalbar', subtitle: 'Temukan wisata, budaya, kuliner, dan produk lokal')),
             TextButton(
               onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExplorePage())),
-              child: const Text('Lihat Semua'),
+              child: Text('Lihat Semua', style: GoogleFonts.fredoka(fontSize: 14, fontWeight: FontWeight.w600)),
             ),
           ],
         ),
@@ -5037,14 +5039,14 @@ class _LiveWeatherCardState extends State<_LiveWeatherCard> {
           ]),
           const SizedBox(height: 5),
           Row(children: [
-            Icon(code == 0 ? Icons.wb_sunny_rounded : Icons.cloud_rounded, size: 29,
+            Icon(code == 0 ? Icons.wb_sunny_rounded : Icons.cloud_rounded, size: 30,
               color: dark ? const Color(0xFFFFD166) : const Color(0xFF287FC0)),
             const SizedBox(width: 6),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(loading ? '…' : (temp == null ? '--°C' : '${temp!.round()}°C'),
-                style: GoogleFonts.fredoka(fontSize: 25, fontWeight: FontWeight.w700, color: fg)),
+                style: GoogleFonts.fredoka(fontSize: 25, fontWeight: FontWeight.w600, color: fg)),
               Text(condition, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: fg, fontSize: 10.5, fontWeight: FontWeight.w600)),
+                style: GoogleFonts.fredoka(fontSize: 11, color: fg, fontWeight: FontWeight.w500)),
             ])),
           ]),
           Text('Terasa ${feels?.round() ?? '--'}°  •  RH ${humidity?.round() ?? '--'}%',
@@ -5103,7 +5105,7 @@ class _UpcomingAgendaPreview extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
               Text('Agenda Mendatang', maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.fredoka(fontSize: 13, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
+                style: GoogleFonts.fredoka(fontSize: 13, fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
               const SizedBox(height: 3),
               Text(event?['title'] ?? 'Belum ada agenda', maxLines: 2, overflow: TextOverflow.ellipsis,
                 style: TextStyle(fontSize: 10.5, height: 1.15, color: theme.colorScheme.onSurfaceVariant)),
@@ -8732,8 +8734,6 @@ class _ProfilePageState extends State<ProfilePage> {
         _profileSection('Menu lainnya', [
           _profileTile(Icons.support_agent_outlined, 'Pusat bantuan', 'Bantuan dan kontak resmi Kalbar Kite',
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactPage()))),
-          _profileTile(Icons.shield_outlined, 'Kebijakan privasi', 'Informasi penggunaan dan penyimpanan data',
-            () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()))),
           _profileTile(Icons.verified_outlined, 'Versi aplikasi', 'Kalbar Kite • Versi 1.0.0', null,
             showDivider: false, showArrow: false),
         ]),
