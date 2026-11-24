@@ -4918,14 +4918,15 @@ class HomePage extends StatelessWidget {
       children: [
         const WelcomeBanner(),
         const SizedBox(height: 14),
-        const _LiveWeatherCard(),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(child: const _LiveWeatherCard(compact: true)),
+            const SizedBox(width: 10),
+            Expanded(child: const _UpcomingAgendaPreview(compact: true)),
+          ],
+        ),
         const SizedBox(height: 18),
-        _sectionTitle(context, 'Agenda Mendatang', subtitle: 'Kegiatan dan festival di Kalimantan Barat'),
-        const _UpcomingAgendaPreview(),
-        const SizedBox(height: 18),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Expanded(child: _sectionTitle(context, 'Jelajahi Kalbar', subtitle: 'Wisata, budaya, kuliner, dan produk lokal')), TextButton(onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExplorePage())), child: const Text('Lihat Semua'))]),
-        const _ExploreDashboardPreview(),
-        const SizedBox(height: 20),
         _sectionTitle(context, 'Layanan Utama', subtitle: 'Akses layanan dan informasi penting seputar Kalbar'),
         Container(
           decoration: BoxDecoration(
@@ -4960,16 +4961,23 @@ class HomePage extends StatelessWidget {
             ])),
           ]),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(child: _sectionTitle(context, 'Jelajahi Kalbar', subtitle: 'Temukan wisata, budaya, kuliner, dan produk lokal')),
+            TextButton(
+              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ExplorePage())),
+              child: const Text('Lihat Semua'),
+            ),
+          ],
+        ),
+        const _ExploreDashboardPreview(),
+        const SizedBox(height: 20),
         _sectionTitle(context, 'Informasi Terkini', subtitle: 'Update berita, pengumuman, dan informasi seputar Kalbar'),
         Divider(height: 1, thickness: 1, color: theme.dividerColor.withValues(alpha: .85)),
         const SizedBox(height: 12),
         _LatestDashboardInfo(onOpen: (post) => _openInfo(context, post)),
-        const SizedBox(height: 18),
-        _sectionTitle(context, 'Pengumuman', subtitle: 'Pemberitahuan penting untuk pengguna'),
-        const _DashboardAnnouncements(),
-        const SizedBox(height: 18),
-        const _DidYouKnowCard(),
         const SizedBox(height: 8),
       ],
     );
@@ -4978,7 +4986,8 @@ class HomePage extends StatelessWidget {
 
 
 class _LiveWeatherCard extends StatefulWidget {
-  const _LiveWeatherCard();
+  final bool compact;
+  const _LiveWeatherCard({this.compact = false});
   @override State<_LiveWeatherCard> createState() => _LiveWeatherCardState();
 }
 class _LiveWeatherCardState extends State<_LiveWeatherCard> {
@@ -5008,6 +5017,41 @@ class _LiveWeatherCardState extends State<_LiveWeatherCard> {
   String _label(int c){if(c==0)return 'Cerah';if(c==1||c==2)return 'Cerah berawan';if(c==3)return 'Berawan';if(c==45||c==48)return 'Berkabut';if(c>=51&&c<=67)return 'Gerimis / hujan';if(c>=80&&c<=82)return 'Hujan';if(c>=95)return 'Badai petir';return 'Kondisi cuaca berubah';}
   @override Widget build(BuildContext context){
     final dark=Theme.of(context).brightness==Brightness.dark;final fg=dark?Colors.white:const Color(0xFF173B5A);
+    if (widget.compact) {
+      return Container(
+        height: 112,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: dark ? const Color(0xFF203D5B) : const Color(0xFFD8EEFF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Theme.of(context).dividerColor.withValues(alpha: .35)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+          Row(children: [
+            Icon(Icons.location_on_outlined, size: 13, color: fg),
+            const SizedBox(width: 3),
+            Expanded(child: Text(place, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: fg, fontSize: 10.5, fontWeight: FontWeight.w700))),
+            InkWell(onTap: loading ? null : () { setState(() { loading = true; error = null; }); _load(); },
+              child: Icon(Icons.refresh_rounded, size: 16, color: fg)),
+          ]),
+          const SizedBox(height: 5),
+          Row(children: [
+            Icon(code == 0 ? Icons.wb_sunny_rounded : Icons.cloud_rounded, size: 29,
+              color: dark ? const Color(0xFFFFD166) : const Color(0xFF287FC0)),
+            const SizedBox(width: 6),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(loading ? '…' : (temp == null ? '--°C' : '${temp!.round()}°C'),
+                style: GoogleFonts.fredoka(fontSize: 25, fontWeight: FontWeight.w700, color: fg)),
+              Text(condition, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: fg, fontSize: 10.5, fontWeight: FontWeight.w600)),
+            ])),
+          ]),
+          Text('Terasa ${feels?.round() ?? '--'}°  •  RH ${humidity?.round() ?? '--'}%',
+            maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: fg.withValues(alpha: .8), fontSize: 9)),
+        ]),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(15),
       decoration: BoxDecoration(
@@ -5034,10 +5078,41 @@ class _LiveWeatherCardState extends State<_LiveWeatherCard> {
 }
 
 class _UpcomingAgendaPreview extends StatelessWidget {
-  const _UpcomingAgendaPreview();
+  final bool compact;
+  const _UpcomingAgendaPreview({this.compact = false});
   @override Widget build(BuildContext context){
     final events=Store.eventPosts.where((e)=>e['status']=='published').toList()..sort((a,b)=>(DateTime.tryParse(a['scheduledAt']??'')??DateTime(2100)).compareTo(DateTime.tryParse(b['scheduledAt']??'')??DateTime(2100)));
     final event=events.isEmpty?null:events.first;
+    if (compact) {
+      final theme = Theme.of(context);
+      return InkWell(
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const EventPage())),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          height: 112,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: theme.brightness == Brightness.dark ? theme.cardColor : const Color(0xFFEBEAFE),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.dividerColor.withValues(alpha: .45)),
+          ),
+          child: Row(children: [
+            Container(width: 35, height: 35,
+              decoration: BoxDecoration(color: const Color(0xFFDCD5FF), borderRadius: BorderRadius.circular(11)),
+              child: const Icon(Icons.calendar_month_rounded, color: Color(0xFF7656D8), size: 21)),
+            const SizedBox(width: 8),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text('Agenda Mendatang', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.fredoka(fontSize: 13, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
+              const SizedBox(height: 3),
+              Text(event?['title'] ?? 'Belum ada agenda', maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 10.5, height: 1.15, color: theme.colorScheme.onSurfaceVariant)),
+            ])),
+            const Icon(Icons.chevron_right_rounded, size: 18),
+          ]),
+        ),
+      );
+    }
     return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const EventPage())),child:Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:Theme.of(context).cardColor,borderRadius:BorderRadius.circular(15),border:Border.all(color:Theme.of(context).dividerColor)),child:Row(children:[Container(width:46,height:46,decoration:BoxDecoration(color:const Color(0xFFECE8FF),borderRadius:BorderRadius.circular(12)),child:const Icon(Icons.calendar_month_rounded,color:Color(0xFF7656D8))),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(event?['title']??'Belum ada agenda mendatang',maxLines:1,overflow:TextOverflow.ellipsis,style:GoogleFonts.fredoka(fontWeight:FontWeight.w700,fontSize:15)),Text(event==null?'Agenda kegiatan Kalbar akan muncul di sini':((event['date']??event['scheduledAt']??'')+' • '+(event['location']??'Kalimantan Barat')),maxLines:2,overflow:TextOverflow.ellipsis,style:TextStyle(fontSize:11,color:Theme.of(context).colorScheme.onSurfaceVariant))])),const Icon(Icons.chevron_right_rounded)])));
   }
 }
@@ -5046,7 +5121,7 @@ class _ExploreDashboardPreview extends StatelessWidget {
   const _ExploreDashboardPreview();
   @override Widget build(BuildContext context){
     const cards=[('Wisata Alam','https://www.pesonaindo.com/wp-content/uploads/2016/04/P9203020.jpg',Icons.camera_alt_rounded),('Wisata Budaya','https://awsimages.detik.net.id/community/media/visual/2024/11/07/seni-tato-suku-dayak-iban-2.jpeg?q=90&w=650',Icons.groups_rounded),('Kuliner Khas','https://image.popmama.com/post/20260512/upload_4a7fe54d554ab970173472ff8fa3aa73_2392ba97-ccfb-4c7e-b185-07b1eff66bbc.jpg',Icons.restaurant_rounded),('Produk Lokal (UMKM)','https://jadesta.kemenpar.go.id/imgpost/2022/08/02/tenun-sambas.jpg',Icons.storefront_rounded)];
-    return SizedBox(height:145,child:ListView.separated(scrollDirection:Axis.horizontal,itemCount:cards.length,separatorBuilder:(_,__)=>const SizedBox(width:10),itemBuilder:(context,i){final item=cards[i];return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ExplorePage())),child:ClipRRect(borderRadius:BorderRadius.circular(15),child:SizedBox(width:154,child:Stack(fit:StackFit.expand,children:[CachedNetworkImage(imageUrl:item.$2,fit:BoxFit.cover,errorWidget:(_,__,___)=>Container(color:const Color(0xFFE5EEF8),child:Icon(item.$3))),DecoratedBox(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Colors.black.withValues(alpha:.75)]))),Positioned(left:9,right:8,bottom:9,child:Row(children:[Icon(item.$3,color:Colors.white,size:17),const SizedBox(width:5),Expanded(child:Text(item.$1,maxLines:2,style:GoogleFonts.fredoka(color:Colors.white,fontWeight:FontWeight.w700,fontSize:13)))]))]))));}));
+    return SizedBox(height:124,child:ListView.separated(scrollDirection:Axis.horizontal,itemCount:cards.length,separatorBuilder:(_,__)=>const SizedBox(width:10),itemBuilder:(context,i){final item=cards[i];return InkWell(onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const ExplorePage())),child:ClipRRect(borderRadius:BorderRadius.circular(15),child:SizedBox(width:166,child:Stack(fit:StackFit.expand,children:[CachedNetworkImage(imageUrl:item.$2,fit:BoxFit.cover,errorWidget:(_,__,___)=>Container(color:const Color(0xFFE5EEF8),child:Icon(item.$3))),DecoratedBox(decoration:BoxDecoration(gradient:LinearGradient(begin:Alignment.topCenter,end:Alignment.bottomCenter,colors:[Colors.transparent,Colors.black.withValues(alpha:.75)]))),Positioned(left:9,right:8,bottom:9,child:Row(children:[Icon(item.$3,color:Colors.white,size:17),const SizedBox(width:5),Expanded(child:Text(item.$1,maxLines:2,style:GoogleFonts.fredoka(color:Colors.white,fontWeight:FontWeight.w700,fontSize:13)))]))]))));}));
   }
 }
 
