@@ -639,7 +639,7 @@ Future<void> _openActivityNotification(Map<String,dynamic> data) async {
     if(data['event']=='comment'&&postId.isNotEmpty){
       appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ActivityCommentsPage(postId:postId)));
     }else{
-      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const ActivityPage()));
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ActivityPage(focusPostId:postId)));
     }
   }catch(error){
     debugPrint('Target aktivitas tidak dapat dibuka: $error');
@@ -3388,7 +3388,8 @@ class _WelcomeBannerFallback extends StatelessWidget {
 }
 
 class ActivityPage extends StatefulWidget {
-  const ActivityPage({super.key});
+  final String focusPostId;
+  const ActivityPage({super.key, this.focusPostId = ''});
   @override
   State<ActivityPage> createState() => _ActivityPageState();
 }
@@ -3415,6 +3416,11 @@ class _ActivityPageState extends State<ActivityPage> {
   @override
   Widget build(BuildContext context) {
     final posts = Store.activityPosts.toList();
+    final focusIndex = posts.indexWhere((post) => (post['id'] ?? '') == widget.focusPostId);
+    if (focusIndex > 0) {
+      final focusedPost = posts.removeAt(focusIndex);
+      posts.insert(0, focusedPost);
+    }
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
