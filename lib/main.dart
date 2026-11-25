@@ -795,11 +795,19 @@ Future<void> main() async {
   // Muat identitas publik sekali saat aplikasi dibuka, termasuk sebelum login.
   // Future yang sama dipakai splash pasca-login agar tidak mengunduh konfigurasi dua kali.
   unawaited(Store.loadVisualConfigWithRetry());
-  _auth.authStateChanges().listen((user) { if (user != null) unawaited(_initializeNotifications(user)); });
+  _auth.authStateChanges().listen((user) {
+    if (user != null) {
+      Store.currentEmail = user.email ?? '';
+      Store.currentUid = user.uid;
+      unawaited(_initializeNotifications(user));
+      unawaited(Store.loadCloudData().catchError((_) {}));
+    }
+  });
   // Sinkronisasi berjalan setelah UI tampil agar splash screen tidak tertahan jaringan.
   if (_auth.currentUser != null) {
     Store.currentEmail = _auth.currentUser!.email ?? '';
     Store.currentUid = _auth.currentUser!.uid;
+    unawaited(Store.loadCloudData().catchError((_) {}));
   }
 }
 
@@ -1825,8 +1833,13 @@ class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
   @override
   Widget build(BuildContext context) {
-    if (_auth.currentUser == null) return const Login();
-    return const _PostLoginSplash();
+    final user = _auth.currentUser;
+    if (user == null) return const Login();
+    Store.currentEmail = user.email ?? '';
+    Store.currentUid = user.uid;
+    // Data loads in the background; do not block the first app frame with a splash.
+    unawaited(Store.loadCloudData().catchError((_) {}));
+    return Store.isAdmin ? const AdminHome() : const Home();
   }
 }
 
@@ -2148,7 +2161,7 @@ class _LoginState extends State<Login> {
       Store.currentEmail = credential.user?.email ?? email;
       Store.currentUid = credential.user?.uid ?? '';
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const _PostLoginSplash()), (route) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => Store.isAdmin ? const AdminHome() : const Home()), (route) => false);
     } on FirebaseAuthException catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_authMessage(error.code))));
     } catch (error) {
@@ -2178,7 +2191,7 @@ class _LoginState extends State<Login> {
         await _db.collection('public_profiles').doc(user.uid).set({'uid':user.uid,'name':user.displayName??'Pengguna Kalbar','username':usernameValue,'bio':'','avatarUrl':user.photoURL??'','bannerUrl':''});
       }
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const _PostLoginSplash()), (route) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => Store.isAdmin ? const AdminHome() : const Home()), (route) => false);
     } on FirebaseAuthException catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_authMessage(error.code))));
     } catch (error) {
@@ -2212,7 +2225,7 @@ class _LoginState extends State<Login> {
         Store.memberNames[email] = fullName.text.trim(); Store.usernames[email] = defaultUsername;
       } catch (_) { profileSaved = false; }
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const _PostLoginSplash()), (route) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => Store.isAdmin ? const AdminHome() : const Home()), (route) => false);
       if (!profileSaved) {
         // Akun Firebase Auth sudah berhasil dibuat; profil dapat disinkronkan dari halaman profil.
       }
