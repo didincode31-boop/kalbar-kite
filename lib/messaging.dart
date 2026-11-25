@@ -237,7 +237,10 @@ class _ChatListPageState extends State<ChatListPage> {
     final isArchived = _archived.contains(uid);
     final isImportant = _important.contains(uid);
     final lastTime = _chatTime(item['lastMessageAt']);
-    final read = item['lastSenderUid'] == _auth.currentUser?.uid && item['lastMessageRead'] == true;
+    final currentUid = _auth.currentUser?.uid ?? '';
+    final read = item['lastSenderUid'] == currentUid && item['lastMessageRead'] == true;
+    final unread = currentUid.isNotEmpty && item['lastSenderUid'] != currentUid &&
+        item['lastMessageRead'] != true && item['lastMessageAt'] != null;
 
     return InkWell(
       onTap: () => _openChat(uid, item),
@@ -259,7 +262,7 @@ class _ChatListPageState extends State<ChatListPage> {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
             Row(mainAxisSize: MainAxisSize.min, children: [
               Flexible(child: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.fredoka(fontSize: 17, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface))),
+                style: GoogleFonts.fredoka(fontSize: 17, fontWeight: unread ? FontWeight.w800 : FontWeight.w600, color: Theme.of(context).colorScheme.onSurface))),
               if (item['ownerVerified'] == true) const Padding(
                 padding: EdgeInsets.only(left: 4),
                 child: Icon(Icons.verified_rounded, color: Color(0xFF2196F3), size: 16),
@@ -271,7 +274,7 @@ class _ChatListPageState extends State<ChatListPage> {
               style: GoogleFonts.fredoka(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 4),
             Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.fredoka(fontSize: 13.5, color: isRequest ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.onSurfaceVariant)),
+              style: GoogleFonts.fredoka(fontSize: 13.5, fontWeight: unread ? FontWeight.w700 : FontWeight.w400, color: unread || isRequest ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.onSurfaceVariant)),
             if (isRequest) Padding(padding: const EdgeInsets.only(top: 3),
               child: Text('Permintaan story • Ikuti kembali untuk membuka chat',
                 maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -283,6 +286,11 @@ class _ChatListPageState extends State<ChatListPage> {
             const SizedBox(height: 8),
             Row(mainAxisSize: MainAxisSize.min, children: [
               if (read) const Icon(Icons.done_all_rounded, size: 17, color: Color(0xFF1687E8)),
+              if (unread) Container(
+                width: 22, height: 22, alignment: Alignment.center,
+                decoration: const BoxDecoration(color: Color(0xFF20A66A), shape: BoxShape.circle),
+                child: const Text('1', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+              ),
               PopupMenuButton<String>(
                 padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 185),
                 icon: Icon(CupertinoIcons.chevron_right, size: 19, color: Theme.of(context).colorScheme.onSurfaceVariant),
