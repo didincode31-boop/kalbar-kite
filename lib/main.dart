@@ -1843,7 +1843,6 @@ class App extends StatelessWidget {
         disabledActionTextColor: dark
             ? const Color(0xFF55555A)
             : const Color(0xFFBDBDC2),
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
           side: BorderSide(
