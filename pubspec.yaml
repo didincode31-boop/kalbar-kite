@@ -31,6 +31,8 @@ dependencies:
   url_launcher: ^6.3.1
   share_plus: ^10.1.4
   file_picker: ^8.1.7
+  file_saver: ^0.7.0
+  open_filex: ^5.0.0
   record: ^6.1.2
   qr_flutter: ^4.1.0
   mobile_scanner: ^7.0.1
