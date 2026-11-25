@@ -296,12 +296,34 @@ Future<String?> _cacheNotificationAvatar(String rawUrl, String actorUid) async {
   }catch(error){debugPrint('Avatar notifikasi gagal dimuat: $error');return null;}
 }
 
+Future<String?> _cacheNotificationMedia(String rawUrl, String actorUid) async {
+  final url = rawUrl.trim();
+  if (!url.startsWith('https://')) return null;
+  try {
+    final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 7));
+    if (response.statusCode != 200 || response.bodyBytes.isEmpty ||
+        response.bodyBytes.length > 5 * 1024 * 1024) return null;
+    final directory = await getTemporaryDirectory();
+    final safeId = actorUid.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final file = File('${directory.path}/kalbar-chat-preview-${safeId.isEmpty ? 'sender' : safeId}.img');
+    await file.writeAsBytes(response.bodyBytes, flush: true);
+    return file.path;
+  } catch (error) {
+    debugPrint('Preview foto notifikasi gagal dimuat: $error');
+    return null;
+  }
+}
+
 Future<NotificationDetails> _socialNotificationDetails(Map<String,dynamic> data) async {
   final event=(data['event']??'').toString();
   final isChat=event=='chat';
   final actorName=(data['actorName']??'Pengguna Kalbar Kite').toString();
   final body=(data['body']??'Ada aktivitas baru untukmu.').toString();
   final avatarPath=await _cacheNotificationAvatar((data['avatarUrl']??'').toString(),(data['actorUid']??'').toString());
+  final mediaUrl=(data['mediaUrl']??'').toString();
+  final mediaPath=isChat&&data['messageType']=='image'
+      ? await _cacheNotificationMedia(mediaUrl,(data['actorUid']??'').toString())
+      : null;
   final actions=<AndroidNotificationAction>[
     if(isChat) AndroidNotificationAction(
       'reply','Balas',
@@ -321,9 +343,17 @@ Future<NotificationDetails> _socialNotificationDetails(Map<String,dynamic> data)
       visibility:NotificationVisibility.private,
       showWhen:true,when:eventAt.millisecondsSinceEpoch,
       largeIcon:avatarPath==null?null:FilePathAndroidBitmap(avatarPath),
-      styleInformation:BigTextStyleInformation(
-        body,contentTitle:actorName,summaryText:'Kalbar Kite',
-      ),
+      styleInformation:mediaPath != null
+          ? BigPictureStyleInformation(
+              FilePathAndroidBitmap(mediaPath),
+              largeIcon: avatarPath == null ? null : FilePathAndroidBitmap(avatarPath),
+              contentTitle: actorName,
+              summaryText: body,
+              hideExpandedLargeIcon: true,
+            )
+          : BigTextStyleInformation(
+              body,contentTitle:actorName,summaryText:'Kalbar Kite',
+            ),
       actions:actions,
       groupKey:isChat?'kalbar_kite_chat_${data['chatId']??'inbox'}':'kalbar_kite_social',
       setAsGroupSummary:false,autoCancel:true,onlyAlertOnce:false,
