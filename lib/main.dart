@@ -1749,7 +1749,8 @@ class App extends StatelessWidget {
       labelSmall: baseTextTheme.labelSmall?.copyWith(fontFamily: roundedFont, fontWeight: FontWeight.w500),
     );
     final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: brightness,
-      primary: accent, secondary: const Color(0xFF5AC8FA), surface: surface, onSurface: foreground);
+      primary: accent, onPrimary: dark ? const Color(0xFF171717) : Colors.white,
+      secondary: const Color(0xFF5AC8FA), surface: surface, onSurface: foreground);
     return ThemeData(
       useMaterial3: true, platform: TargetPlatform.android, brightness: brightness,
       scaffoldBackgroundColor: surface, visualDensity: VisualDensity.standard,
@@ -2359,12 +2360,12 @@ class _LoginState extends State<Login> {
                     style: FilledButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.primary,
                       disabledBackgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: .45),
-                      foregroundColor: Colors.white,
+                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     ),
                     child: submitting
-                      ? const SizedBox(width: 21, height: 21, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? SizedBox(width: 21, height: 21, child: CircularProgressIndicator(strokeWidth: 2, color: Theme.of(context).colorScheme.onPrimary))
                       : Text(registering ? 'Daftar Sekarang' : 'Masuk Sekarang', style: GoogleFonts.fredoka(fontSize: 21, fontWeight: FontWeight.w600)),
                   ),
                 ),
@@ -6076,54 +6077,87 @@ class RandomPage extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
     final isQuran = icon == CupertinoIcons.moon_stars_fill;
+    // Prefer admin-configured images; fall back to a relevant Wikimedia Commons photo.
+    final effectiveImageUrl = imageUrl.trim().isNotEmpty
+        ? imageUrl.trim()
+        : isQuran
+            ? 'https://commons.wikimedia.org/wiki/Special:FilePath/Islamic%20geometric%20patterns.jpg'
+            : 'https://commons.wikimedia.org/wiki/Special:FilePath/Tarian_dan_pakaian_khas_kalimantan.jpg';
     final accent = isQuran ? const Color(0xFF56B6A5) : const Color(0xFF8B9BE8);
-    final background = dark ? const Color(0xFF1C2028) : const Color(0xFFF4F7FB);
     return Material(
-      color: background,
+      color: theme.colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(22),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            border: Border.all(color: theme.dividerColor.withValues(alpha: .75)),
-            borderRadius: BorderRadius.circular(22),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: dark
-                  ? [background, Color.lerp(background, accent, .16)!]
-                  : [background, Color.lerp(background, accent, .13)!],
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Container(
-                  width: 54, height: 54,
-                  decoration: BoxDecoration(
-                    color: accent.withValues(alpha: dark ? .19 : .13),
-                    borderRadius: BorderRadius.circular(17),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            CachedNetworkImage(
+              imageUrl: effectiveImageUrl,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [accent.withValues(alpha: .45), theme.colorScheme.surfaceContainerHighest],
                   ),
-                  child: Icon(icon, color: dark ? Color.lerp(accent, Colors.white, .18) : accent, size: 29),
                 ),
-                const Spacer(),
-                Icon(CupertinoIcons.arrow_up_right, color: theme.colorScheme.onSurfaceVariant, size: 19),
-              ]),
-              const Spacer(),
-              Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.fredoka(fontSize: 19, fontWeight: FontWeight.w700,
-                  color: theme.colorScheme.onSurface)),
-              const SizedBox(height: 4),
-              Text(isQuran ? 'Bacaan dan panduan Islami' : 'Pantun dan budaya Kalimantan Barat',
-                maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.inter(fontSize: 11.5, height: 1.35,
-                  color: theme.colorScheme.onSurfaceVariant)),
-            ],
-          ),
+              ),
+              errorWidget: (_, __, ___) => DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [accent.withValues(alpha: .45), theme.colorScheme.surfaceContainerHighest],
+                  ),
+                ),
+                child: Center(child: Icon(icon, size: 66, color: accent)),
+              ),
+            ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                  colors: [Color(0x22000000), Color(0x08000000), Color(0xD9000000)],
+                  stops: [0, .42, 1],
+                ),
+              ),
+            ),
+            Positioned(
+              top: 14, left: 14,
+              child: Container(
+                width: 48, height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .42),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.white.withValues(alpha: .24)),
+                ),
+                child: Icon(icon, color: Colors.white, size: 26),
+              ),
+            ),
+            Positioned(
+              top: 22, right: 15,
+              child: Icon(CupertinoIcons.arrow_up_right, color: Colors.white.withValues(alpha: .95), size: 21),
+            ),
+            Positioned(
+              left: 15, right: 15, bottom: 16,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.fredoka(fontSize: 19, fontWeight: FontWeight.w700,
+                      color: Colors.white, shadows: const [Shadow(color: Colors.black54, blurRadius: 8)])),
+                  const SizedBox(height: 4),
+                  Text(isQuran ? 'Bacaan dan panduan Islami' : 'Pantun dan budaya Kalimantan Barat',
+                    maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(fontSize: 11.5, height: 1.35,
+                      color: Colors.white.withValues(alpha: .9))),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
