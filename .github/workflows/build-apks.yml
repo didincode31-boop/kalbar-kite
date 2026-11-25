@@ -330,6 +330,13 @@ jobs:
           exit 1
       - name: Format Dart source
         run: dart format lib test
+      - name: Inspect formatted analyzer error locations
+        if: always()
+        run: |
+          echo '--- formatted lib/main.dart lines 2558-2585 ---'
+          sed -n '2558,2585p' lib/main.dart || true
+          echo '--- formatted lib/main.dart lines 3630-3660 ---'
+          sed -n '3630,3660p' lib/main.dart || true
       - name: Analyze Dart
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - name: Prepare stable Android signing key for beta builds
