@@ -46,6 +46,10 @@ async function sendSocialFcm(project,access,sa,recipient,title,body,data,env){
         priority:10
       };
       if(data.avatarUrl&&/^https:\/\//i.test(String(data.avatarUrl)))payload.large_icon=String(data.avatarUrl);
+      if(data.mediaUrl&&/^https:\/\//i.test(String(data.mediaUrl))){
+        payload.big_picture=String(data.mediaUrl);
+        payload.ios_attachments={image:String(data.mediaUrl)};
+      }
       const response=await fetch("https://api.onesignal.com/notifications",{
         method:"POST",
         headers:{Authorization:"Key "+env.ONESIGNAL_REST_API_KEY,"Content-Type":"application/json"},
@@ -67,9 +71,9 @@ async function sendSocialFcm(project,access,sa,recipient,title,body,data,env){
     try{
       const message={
         token:row.data.token,
-        notification:{title,body},
+        notification:{title,body,...(data.mediaUrl&&/^https:\/\//i.test(String(data.mediaUrl))?{image:String(data.mediaUrl)}:{})},
         data:payloadData,
-        android:{priority:"HIGH",ttl:"86400s",notification:{channel_id:"kalbar_kite_social",sound:"default",priority:"MAX"}},
+        android:{priority:"HIGH",ttl:"86400s",notification:{channel_id:"kalbar_kite_social",sound:"default",priority:"MAX",...(data.mediaUrl&&/^https:\/\//i.test(String(data.mediaUrl))?{image:String(data.mediaUrl)}:{})}},
         apns:{headers:{"apns-priority":"10"},payload:{aps:{sound:"default",contentAvailable:true}}}
       };
       const response=await fetch(endpoint,{method:"POST",headers:{authorization:"Bearer "+token,"content-type":"application/json"},body:JSON.stringify({message})});
@@ -108,7 +112,8 @@ async function handleSocialNotification(request,env,project,access){
     const chat=await getDoc(project,access,'chats',id),message=await getNestedDoc(project,access,'chats/'+encodeURIComponent(id)+'/messages/'+encodeURIComponent(itemId));
     const participants=Array.isArray(chat?.participants)?chat.participants:[];
     if(!chat||!message||message.senderUid!==actor.uid||!participants.includes(actor.uid)||!participants.includes(message.receiverUid)||!message.receiverUid)throw Object.assign(Error('Aktivitas chat tidak valid.'),{status:404});
-    recipient=String(message.receiverUid);title=actorName;body=String(message.text||'').trim().slice(0,180)||(message.type==='image'?'📷 Mengirim foto':message.type==='audio'?'🎤 Mengirim pesan suara':message.type==='location'?'📍 Mengirim lokasi':'Mengirim lampiran');targetType='chat';data.chatId=id;data.messageId=itemId;
+    recipient=String(message.receiverUid);title=actorName;body=String(message.text||'').trim().slice(0,180)||(message.type==='image'?'📷 Mengirim foto':message.type==='audio'?'🎤 Mengirim pesan suara':message.type==='location'?'📍 Mengirim lokasi':'Mengirim lampiran');targetType='chat';data.chatId=id;data.messageId=itemId;data.messageType=String(message.type||'text');
+    if(message.type==='image'&&typeof message.url==='string'&&/^https:\/\//i.test(message.url))data.mediaUrl=message.url;
   }else if(type==='story_reply'||type==='story_reaction'){
     if(!itemId)throw Object.assign(Error('ID interaksi story tidak valid.'),{status:400});
     const story=await getDoc(project,access,'stories',id),sub=type==='story_reply'?'replies':'reactions',interaction=await getNestedDoc(project,access,'stories/'+encodeURIComponent(id)+'/'+sub+'/'+encodeURIComponent(itemId));
