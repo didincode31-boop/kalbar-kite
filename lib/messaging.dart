@@ -1142,19 +1142,19 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
           ? finalName
           : finalName.substring(0, dot);
 
-      // Simpan salinan permanen ke folder Downloads yang terlihat oleh pengguna.
-      await FileSaver.instance.saveToDownloads(
+      // file_saver 0.3.1 supports the project's Dart SDK (>=3.3).
+      // Save the downloaded bytes locally, then hand the saved file to Android.
+      final savedPath = await FileSaver.instance.saveFile(
         name: baseName,
         bytes: response.bodyBytes,
         fileExtension: extension,
         mimeType: MimeType.other,
       );
+      if (savedPath == null || savedPath.isEmpty) {
+        throw Exception('File tidak berhasil disimpan ke penyimpanan aplikasi.');
+      }
 
-      // Buka salinan lokal melalui aplikasi Android yang cocok dengan tipe file.
-      final tempDir = await getTemporaryDirectory();
-      final localFile = File('${tempDir.path}/${finalName}');
-      await localFile.writeAsBytes(response.bodyBytes, flush: true);
-      final result = await OpenFilex.open(localFile.path);
+      final result = await OpenFilex.open(savedPath);
       if (!mounted) return;
       if (result.type != ResultType.done) {
         ScaffoldMessenger.of(context).showSnackBar(
