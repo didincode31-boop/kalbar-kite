@@ -6648,14 +6648,14 @@ class _QuranPageState extends State<QuranPage> {
     final muted = dark ? Colors.white70 : const Color(0xFF686868);
     final line = dark ? const Color(0xFF3A3A3A) : const Color(0xFFE5E5E5);
     return BackPage(title: 'Islami', child: Column(children: [
-      Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 10), child: TextField(
+      Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 7), child: TextField(
         controller: search, onChanged: (_) => setState(() {}),
         style: GoogleFonts.fredoka(color: ink, fontSize: 15),
         decoration: InputDecoration(
           prefixIcon: Icon(CupertinoIcons.search, color: muted),
           hintText: 'Cari surah...', hintStyle: GoogleFonts.fredoka(color: muted, fontSize: 15),
           filled: true, fillColor: dark ? const Color(0xFF202020) : const Color(0xFFF7F7F7),
-          contentPadding: const EdgeInsets.symmetric(vertical: 15),
+          contentPadding: const EdgeInsets.symmetric(vertical: 11),
           enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: line)),
           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: ink, width: 1.2)),
         ),
@@ -6670,28 +6670,28 @@ class _QuranPageState extends State<QuranPage> {
                 label: Text('Coba lagi', style: TextStyle(color: ink))),
             ])))
           : RefreshIndicator(color: ink, onRefresh: _load, child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 18),
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
               itemCount: shown.length,
               itemBuilder: (context, i) {
                 final surah = shown[i] as Map<String, dynamic>;
                 return Card(
                   elevation: 0, color: dark ? const Color(0xFF1D1D1D) : Colors.white,
-                  margin: const EdgeInsets.only(bottom: 9),
+                  margin: const EdgeInsets.only(bottom: 6),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13), side: BorderSide(color: line)),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
                     leading: Container(
-                      width: 44, height: 44,
+                      width: 36, height: 36,
                       decoration: BoxDecoration(
                         color: dark ? const Color(0xFF353535) : const Color(0xFFF0F0F0),
                         borderRadius: BorderRadius.circular(12)),
                       child: Center(child: Text(surah['nomor'].toString(),
-                        style: GoogleFonts.fredoka(color: ink, fontWeight: FontWeight.w700, fontSize: 16))),
+                        style: GoogleFonts.inter(color: ink, fontWeight: FontWeight.w700, fontSize: 13))),
                     ),
                     title: Text(surah['namaLatin']?.toString() ?? '',
-                      style: GoogleFonts.fredoka(fontWeight: FontWeight.w700, fontSize: 16, color: ink)),
+                      style: GoogleFonts.fredoka(fontWeight: FontWeight.w700, fontSize: 14, color: ink)),
                     subtitle: Text((surah['tempatTurun'] ?? '').toString() + ' • ' + (surah['arti'] ?? '').toString(),
-                      style: GoogleFonts.fredoka(color: muted, fontSize: 13)),
+                      style: GoogleFonts.inter(color: muted, fontSize: 11.5)),
                     trailing: Icon(CupertinoIcons.chevron_right, color: ink),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => QuranDetailPage(
                       surahNumber: int.tryParse(surah['nomor'].toString()) ?? 1,
@@ -6781,36 +6781,91 @@ class _QuranDetailPageState extends State<QuranDetailPage> {
         : error != null
           ? Center(child: Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [Text(error!), FilledButton(onPressed: _load, child: const Text('Coba lagi'))])))
           : ListView(padding: const EdgeInsets.all(15), children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: pale, borderRadius: BorderRadius.circular(9), border: Border.all(color: Theme.of(context).dividerColor)),
-                child: Column(children: [
-                  Text(surah?['nama']?.toString() ?? '', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 5),
-                  Text((surah?['namaLatin'] ?? widget.title).toString() + ' • ' + (surah?['jumlahAyat'] ?? verses.length).toString() + ' ayat'),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(onPressed: fullAudio == null ? null : () => _play(fullAudio), icon: Icon(playing ? Icons.graphic_eq : CupertinoIcons.play_arrow_solid), label: const Text('Putar audio surah lengkap')),
-                ]),
-              ),
-              const SizedBox(height: 12),
+              Builder(builder: (context) {
+                final theme = Theme.of(context);
+                final dark = theme.brightness == Brightness.dark;
+                final ink = theme.colorScheme.onSurface;
+                final muted = theme.colorScheme.onSurfaceVariant;
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(13, 10, 13, 11),
+                  decoration: BoxDecoration(
+                    color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF5F5F7),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: theme.dividerColor.withValues(alpha: .45), width: .7),
+                  ),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(surah?['nama']?.toString() ?? '',
+                      style: GoogleFonts.amiri(fontSize: 23, color: ink, height: 1.45)),
+                    const SizedBox(height: 1),
+                    Text(
+                      (surah?['namaLatin'] ?? widget.title).toString() + ' • ' + (surah?['jumlahAyat'] ?? verses.length).toString() + ' ayat',
+                      style: GoogleFonts.inter(fontSize: 11.5, color: muted, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: fullAudio == null ? null : () => _play(fullAudio),
+                      icon: Icon(playing ? Icons.graphic_eq : CupertinoIcons.play_arrow_solid, size: 16),
+                      label: Text(playing ? 'Sedang diputar' : 'Putar audio surah'),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        textStyle: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ]),
+                );
+              }),
+              const SizedBox(height: 8),
               ...verses.map((v) {
                 final verse = v as Map<String, dynamic>;
                 final audio = (verse['audio'] as Map?)?['05']?.toString();
                 return Card(
-                  elevation: 0, margin: const EdgeInsets.only(bottom: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Theme.of(context).dividerColor)),
-                  child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  elevation: 0, margin: const EdgeInsets.only(bottom: 7),
+                  color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1C1C1E) : const Color(0xFFF8F8FA),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13), side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: .5), width: .7)),
+                  child: Padding(padding: const EdgeInsets.fromLTRB(12, 9, 12, 11), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     Row(children: [
-                      CircleAvatar(radius: 16, backgroundColor: pale, child: Text(verse['nomorAyat'].toString(), style: const TextStyle(color: forest, fontWeight: FontWeight.w800))),
+                      CircleAvatar(
+                        radius: 13,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        child: Text(verse['nomorAyat'].toString(),
+                          style: GoogleFonts.inter(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w700)),
+                      ),
                       const Spacer(),
-                      IconButton(tooltip: 'Putar ayat', onPressed: audio == null ? null : () => _play(audio), icon: const Icon(Icons.play_circle_outline, color: forest)),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Putar ayat',
+                        onPressed: audio == null ? null : () => _play(audio),
+                        icon: Icon(Icons.play_circle_outline, color: Theme.of(context).colorScheme.onSurfaceVariant, size: 19),
+                      ),
                     ]),
-                    const SizedBox(height: 12),
-                    Text(verse['teksArab']?.toString() ?? '', textAlign: TextAlign.right, style: const TextStyle(fontSize: 26, height: 1.9, fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 8),
-                    Text(verse['teksLatin']?.toString() ?? '', style: const TextStyle(color: forest, fontStyle: FontStyle.italic, height: 1.5)),
-                    const SizedBox(height: 7),
-                    Text(verse['teksIndonesia']?.toString() ?? '', style: const TextStyle(height: 1.5)),
+                    const SizedBox(height: 5),
+                    Text(
+                      verse['teksArab']?.toString() ?? '',
+                      textAlign: TextAlign.right,
+                      style: GoogleFonts.amiri(
+                        fontSize: 23,
+                        height: 1.7,
+                        fontWeight: FontWeight.w500,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      verse['teksLatin']?.toString() ?? '',
+                      style: GoogleFonts.inter(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurfaceVariant, fontStyle: FontStyle.italic, height: 1.4),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      verse['teksIndonesia']?.toString() ?? '',
+                      style: GoogleFonts.inter(fontSize: 12.5, height: 1.45, color: Theme.of(context).colorScheme.onSurface),
+                    ),
                   ])),
                 );
               }),
@@ -9821,8 +9876,8 @@ class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage>
           borderRadius: BorderRadius.circular(14),
           onTap: () => setState(() => _selectedTab = index),
           child: Container(
-            constraints: const BoxConstraints(minHeight: 64),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: selected ? colors.surfaceContainerHighest : colors.outlineVariant),
@@ -9830,8 +9885,8 @@ class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: 22, color: colors.onSurface),
-                const SizedBox(width: 9),
+                Icon(icon, size: 18, color: colors.onSurface),
+                const SizedBox(width: 6),
                 Flexible(
                   child: Text(
                     title,
@@ -9840,7 +9895,8 @@ class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage>
                     style: TextStyle(
                       color: colors.onSurface,
                       fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
-                      fontSize: 13,
+                      fontSize: 11.5,
+                      fontFamily: GoogleFonts.inter().fontFamily,
                     ),
                   ),
                 ),
