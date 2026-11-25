@@ -2414,6 +2414,61 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  Widget _chatNavigationIcon({required bool selected}) {
+    final uid = _auth.currentUser?.uid ?? '';
+    final icon = Icon(
+      selected ? CupertinoIcons.chat_bubble_2_fill : CupertinoIcons.chat_bubble_2,
+    );
+    if (uid.isEmpty) return icon;
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _db.collection('chats')
+          .where('participants', arrayContains: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final unreadCount = (snapshot.data?.docs ?? []).where((doc) {
+          final data = doc.data();
+          final lastSenderUid = (data['lastSenderUid'] ?? '').toString();
+          return lastSenderUid.isNotEmpty &&
+              lastSenderUid != uid &&
+              data['lastMessageRead'] != true;
+        }).length;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            icon,
+            if (unreadCount > 0)
+              Positioned(
+                right: -11,
+                top: -8,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE53935),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.surface,
+                      width: 1.4,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    unreadCount > 99 ? '99+' : '$unreadCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      height: 1.1,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Brand(), actions: [
@@ -2436,11 +2491,15 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       selectedIndex: tab,
       onDestinationSelected: (v) => setState(() => tab = v),
       destinations: const [
-        NavigationDestination(icon: Icon(CupertinoIcons.house), selectedIcon: Icon(CupertinoIcons.house_fill), label: 'Home'),
-        NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
-        NavigationDestination(icon: Icon(CupertinoIcons.square_grid_2x2), selectedIcon: Icon(CupertinoIcons.square_grid_2x2_fill), label: 'Posting'),
-        NavigationDestination(icon: Icon(CupertinoIcons.chat_bubble_2), selectedIcon: Icon(CupertinoIcons.chat_bubble_2_fill), label: 'Chat'),
-        NavigationDestination(icon: Icon(CupertinoIcons.person), selectedIcon: Icon(CupertinoIcons.person_fill), label: 'Profile'),
+        const NavigationDestination(icon: Icon(CupertinoIcons.house), selectedIcon: Icon(CupertinoIcons.house_fill), label: 'Home'),
+        const NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
+        const NavigationDestination(icon: Icon(CupertinoIcons.square_grid_2x2), selectedIcon: Icon(CupertinoIcons.square_grid_2x2_fill), label: 'Posting'),
+        NavigationDestination(
+          icon: _chatNavigationIcon(selected: false),
+          selectedIcon: _chatNavigationIcon(selected: true),
+          label: 'Chat',
+        ),
+        const NavigationDestination(icon: Icon(CupertinoIcons.person), selectedIcon: Icon(CupertinoIcons.person_fill), label: 'Profile'),
       ],
     )),
   );
