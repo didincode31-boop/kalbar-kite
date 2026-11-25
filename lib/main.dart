@@ -1826,8 +1826,32 @@ class App extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10))),
       textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: accent, textStyle: TextStyle(fontFamily: roundedFont, fontWeight: FontWeight.w800))),
-      snackBarTheme: SnackBarThemeData(behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: dark
+            ? const Color(0xE6F2F2F7)
+            : const Color(0xE62C2C2E),
+        elevation: 0,
+        insetPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+        contentTextStyle: GoogleFonts.inter(
+          color: dark ? const Color(0xFF17171A) : Colors.white,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          height: 1.35,
+        ),
+        actionTextColor: dark ? const Color(0xFF17171A) : Colors.white,
+        disabledActionTextColor: dark
+            ? const Color(0xFF55555A)
+            : const Color(0xFFBDBDC2),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(
+            color: Colors.white.withValues(alpha: dark ? .92 : .48),
+            width: 1.15,
+          ),
+        ),
+      ),
       listTileTheme: ListTileThemeData(iconColor: accent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2)),
