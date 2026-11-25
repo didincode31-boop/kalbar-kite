@@ -2229,7 +2229,7 @@ class _LoginState extends State<Login> {
       statusBarBrightness: Brightness.dark,
     ),
     child: Scaffold(
-    backgroundColor: Colors.white,
+    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
     body: SafeArea(
       top: false,
       child: SingleChildScrollView(
@@ -2245,7 +2245,7 @@ class _LoginState extends State<Login> {
                 Text(
                   registering ? 'Buat Akun' : 'Masuk ke Akun',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.fredoka(fontSize: 34, fontWeight: FontWeight.w600, color: const Color(0xFF111B3A), height: 1.12),
+                  style: GoogleFonts.fredoka(fontSize: 34, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface, height: 1.12),
                 ),
                 const SizedBox(height: 9),
                 Text(
@@ -2253,7 +2253,7 @@ class _LoginState extends State<Login> {
                     ? 'Gabung dengan komunitas Kalimantan Barat.'
                     : 'Masuk untuk berbagi, membaca, dan terhubung dengan komunitas Kalimantan Barat.',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(fontSize: 14, height: 1.45, color: const Color(0xFF667085), fontWeight: FontWeight.w500),
+                  style: GoogleFonts.inter(fontSize: 14, height: 1.45, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 27),
                 if (registering) ...[
@@ -2278,7 +2278,7 @@ class _LoginState extends State<Login> {
                   obscure: hidePassword,
                   suffix: IconButton(
                     onPressed: () => setState(() => hidePassword = !hidePassword),
-                    icon: Icon(hidePassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: const Color(0xFF667085)),
+                    icon: Icon(hidePassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                   onSubmitted: (_) => registering ? register() : login(),
                 ),
@@ -2292,7 +2292,7 @@ class _LoginState extends State<Login> {
                     obscure: hideConfirmPassword,
                     suffix: IconButton(
                       onPressed: () => setState(() => hideConfirmPassword = !hideConfirmPassword),
-                      icon: Icon(hideConfirmPassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: const Color(0xFF667085)),
+                      icon: Icon(hideConfirmPassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -2303,7 +2303,7 @@ class _LoginState extends State<Login> {
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
                     activeColor: const Color(0xFF0878F9),
-                    title: Text('Saya setuju dengan ketentuan penggunaan dan kebijakan privasi Kalbar Kite.', style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF596273), height: 1.35)),
+                    title: Text('Saya setuju dengan ketentuan penggunaan dan kebijakan privasi Kalbar Kite.', style: GoogleFonts.inter(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.35)),
                   ),
                 ],
                 if (!registering) ...[
@@ -2319,7 +2319,7 @@ class _LoginState extends State<Login> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                         ),
                       ),
-                      Text('Ingat saya', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF596273), fontWeight: FontWeight.w600)),
+                      Text('Ingat saya', style: GoogleFonts.inter(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
                       const Spacer(),
                       TextButton(
                         onPressed: () async {
@@ -2343,7 +2343,7 @@ class _LoginState extends State<Login> {
                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal mengirim reset password: $error')));
                           }
                         },
-                        child: Text('Lupa password?', style: GoogleFonts.fredoka(fontSize: 15, color: const Color(0xFF0878F9), fontWeight: FontWeight.w500)),
+                        child: Text('Lupa password?', style: GoogleFonts.fredoka(fontSize: 15, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w500)),
                       ),
                     ],
                   ),
@@ -2357,8 +2357,8 @@ class _LoginState extends State<Login> {
                       await login();
                     }),
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF0878F9),
-                      disabledBackgroundColor: const Color(0xFF83B9F5),
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      disabledBackgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: .45),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
@@ -2371,8 +2371,8 @@ class _LoginState extends State<Login> {
                 if (!registering) ...[
                   const SizedBox(height: 23),
                   Row(children: [
-                    const Expanded(child: Divider(color: Color(0xFFD9DEE8), thickness: 1)),
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 15), child: Text('atau', style: GoogleFonts.fredoka(fontSize: 16, color: const Color(0xFF687083)))),
+                    Expanded(child: Divider(color: Theme.of(context).dividerColor, thickness: 1)),
+                    Padding(padding: const EdgeInsets.symmetric(horizontal: 15), child: Text('atau', style: GoogleFonts.fredoka(fontSize: 16, color: Theme.of(context).colorScheme.onSurfaceVariant))),
                     const Expanded(child: Divider(color: Color(0xFFD9DEE8), thickness: 1)),
                   ]),
                   const SizedBox(height: 17),
@@ -2381,9 +2381,9 @@ class _LoginState extends State<Login> {
                     child: OutlinedButton(
                       onPressed: submitting ? null : signInWithGoogle,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF111B3A),
-                        backgroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFFD8DEEA), width: 1.3),
+                        foregroundColor: Theme.of(context).colorScheme.onSurface,
+                        backgroundColor: Theme.of(context).cardColor,
+                        side: BorderSide(color: Theme.of(context).dividerColor, width: 1.3),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       ),
                       child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -2413,10 +2413,10 @@ class _LoginState extends State<Login> {
                     }),
                     child: RichText(
                       text: TextSpan(
-                        style: GoogleFonts.fredoka(fontSize: 16, color: const Color(0xFF687083)),
+                        style: GoogleFonts.fredoka(fontSize: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         children: [
                           TextSpan(text: registering ? 'Sudah punya akun? ' : 'Belum punya akun? '),
-                          TextSpan(text: registering ? 'Masuk' : 'Daftar', style: const TextStyle(color: Color(0xFF0878F9), fontWeight: FontWeight.w600)),
+                          TextSpan(text: registering ? 'Masuk' : 'Daftar', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600)),
                         ],
                       ),
                     ),
@@ -2500,9 +2500,9 @@ class _AuthLabel extends StatelessWidget {
   const _AuthLabel({required this.text, required this.icon});
   @override
   Widget build(BuildContext context) => Row(children: [
-    Icon(icon, color: const Color(0xFF111B3A), size: 22),
+    Icon(icon, color: Theme.of(context).colorScheme.onSurface, size: 22),
     const SizedBox(width: 12),
-    Text(text, style: GoogleFonts.fredoka(fontSize: 16, fontWeight: FontWeight.w500, color: const Color(0xFF111B3A))),
+    Text(text, style: GoogleFonts.fredoka(fontSize: 16, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurface)),
   ]);
 }
 class _AuthInput extends StatelessWidget {
@@ -2514,15 +2514,15 @@ class _AuthInput extends StatelessWidget {
   Widget build(BuildContext context) => TextField(
     controller: controller, keyboardType: keyboard, textCapitalization: capitalization,
     obscureText: obscure, onSubmitted: onSubmitted,
-    style: GoogleFonts.inter(fontSize: 15, color: const Color(0xFF111B3A)),
+    style: GoogleFonts.inter(fontSize: 15, color: Theme.of(context).colorScheme.onSurface),
     decoration: InputDecoration(
-      hintText: hint, hintStyle: GoogleFonts.fredoka(fontSize: 15, color: const Color(0xFF8791A3), fontWeight: FontWeight.w400),
+      hintText: hint, hintStyle: GoogleFonts.fredoka(fontSize: 15, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w400),
       prefixIcon: keyboard == TextInputType.emailAddress ? null : null,
-      suffixIcon: suffix, filled: true, fillColor: Colors.white,
+      suffixIcon: suffix, filled: true, fillColor: Theme.of(context).inputDecorationTheme.fillColor ?? Theme.of(context).cardColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 19, vertical: 18),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Color(0xFFD8DEEA), width: 1.3)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Color(0xFFD8DEEA), width: 1.3)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Color(0xFF0878F9), width: 1.6)),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Theme.of(context).dividerColor, width: 1.3)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Theme.of(context).dividerColor, width: 1.3)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.6)),
     ),
   );
 }
@@ -3640,7 +3640,7 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
       });
       if (shouldAdvance && mounted) {
         if (url.startsWith('https://')) {
-          if (!_videoAutoClosed) { _videoAutoClosed = true; timer?.cancel(); Navigator.of(context).maybePop(); }
+          if (!_videoAutoClosed) { _videoAutoClosed = true; _next(); }
         } else {
           _next();
         }
@@ -6068,73 +6068,54 @@ class RandomPage extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    final hasImage = imageUrl.startsWith('https://');
+    final dark = theme.brightness == Brightness.dark;
+    final isQuran = icon == CupertinoIcons.moon_stars_fill;
+    final accent = isQuran ? const Color(0xFF56B6A5) : const Color(0xFF8B9BE8);
+    final background = dark ? const Color(0xFF1C2028) : const Color(0xFFF4F7FB);
     return Material(
-      color: theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: .9), width: 1.1),
-      ),
+      color: background,
+      borderRadius: BorderRadius.circular(22),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(
-              flex: 7,
-              child: hasImage
-                  ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      placeholder: (_, __) => const ColoredBox(
-                        color: Color(0xFFF1F3F5),
-                        child: Center(child: Icon(CupertinoIcons.photo, size: 34, color: Color(0xFF8795A3))),
-                      ),
-                      errorWidget: (_, __, ___) => const ColoredBox(
-                        color: Color(0xFFF1F3F5),
-                        child: Center(child: Icon(CupertinoIcons.photo, size: 34, color: Color(0xFF8795A3))),
-                      ),
-                    )
-                  : const ColoredBox(
-                      color: Color(0xFFF1F3F5),
-                      child: Center(child: Icon(CupertinoIcons.photo, size: 34, color: Color(0xFF8795A3))),
-                    ),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border.all(color: theme.dividerColor.withValues(alpha: .75)),
+            borderRadius: BorderRadius.circular(22),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: dark
+                  ? [background, Color.lerp(background, accent, .16)!]
+                  : [background, Color.lerp(background, accent, .13)!],
             ),
-            Expanded(
-              flex: 3,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Icon(icon, color: theme.colorScheme.onSurfaceVariant, size: 23),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.fredoka(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                    ),
-                  ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Container(
+                  width: 54, height: 54,
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: dark ? .19 : .13),
+                    borderRadius: BorderRadius.circular(17),
+                  ),
+                  child: Icon(icon, color: dark ? Color.lerp(accent, Colors.white, .18) : accent, size: 29),
                 ),
-              ),
-            ),
-          ],
+                const Spacer(),
+                Icon(CupertinoIcons.arrow_up_right, color: theme.colorScheme.onSurfaceVariant, size: 19),
+              ]),
+              const Spacer(),
+              Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.fredoka(fontSize: 19, fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface)),
+              const SizedBox(height: 4),
+              Text(isQuran ? 'Bacaan dan panduan Islami' : 'Pantun dan budaya Kalimantan Barat',
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(fontSize: 11.5, height: 1.35,
+                  color: theme.colorScheme.onSurfaceVariant)),
+            ],
+          ),
         ),
       ),
     );
@@ -6184,7 +6165,7 @@ class RandomPage extends StatelessWidget {
             crossAxisCount: 2,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: .80,
+            childAspectRatio: 1.02,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             children: [
@@ -9036,8 +9017,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     Expanded(
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: forest,
-                          side: const BorderSide(color: forest, width: 1.4),
+                          foregroundColor: Theme.of(dialogContext).colorScheme.onSurface,
+                          side: BorderSide(color: Theme.of(dialogContext).dividerColor, width: 1.4),
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -9051,8 +9032,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     Expanded(
                       child: FilledButton(
                         style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFF2B8BE),
-                          foregroundColor: const Color(0xFF8F303B),
+                          backgroundColor: Theme.of(dialogContext).brightness == Brightness.dark ? const Color(0xFF542C34) : const Color(0xFFF2B8BE),
+                          foregroundColor: Theme.of(dialogContext).brightness == Brightness.dark ? const Color(0xFFFFC1C8) : const Color(0xFF8F303B),
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
