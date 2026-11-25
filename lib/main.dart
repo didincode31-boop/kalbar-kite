@@ -9792,59 +9792,260 @@ class ProfileItem extends StatelessWidget {
   Widget build(BuildContext context) => Card(elevation: 0, child: ListTile(onTap: onTap, leading: Icon(icon, color: forest), title: Text(title), subtitle: Text(subtitle), trailing: const Icon(CupertinoIcons.chevron_right)));
 }
 
-class BroadcastNotificationsPage extends StatelessWidget {
+class BroadcastNotificationsPage extends StatefulWidget {
   const BroadcastNotificationsPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Notifikasi Kalbar Kite')),
-    body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+  State<BroadcastNotificationsPage> createState() => _BroadcastNotificationsPageState();
+}
+
+class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage> {
+  int _selectedTab = 0;
+
+  String _formatNotificationDate(dynamic value) {
+    DateTime? date;
+    if (value is Timestamp) date = value.toDate().toLocal();
+    else if (value is DateTime) date = value.toLocal();
+    else if (value is String) date = DateTime.tryParse(value)?.toLocal();
+    if (date == null) return '';
+    return '\${date.day.toString().padLeft(2, '0')}/\${date.month.toString().padLeft(2, '0')}/\${date.year} • \${date.hour.toString().padLeft(2, '0')}.\${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  Widget _tabButton(String title, IconData icon, int index) {
+    final selected = _selectedTab == index;
+    final colors = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Material(
+        color: selected ? colors.surfaceContainerHighest : colors.surface,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => _selectedTab = index),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 64),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: selected ? colors.surfaceContainerHighest : colors.outlineVariant),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 22, color: colors.onSurface),
+                const SizedBox(width: 9),
+                Flexible(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyState(String message) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(28),
+      child: Text(message, textAlign: TextAlign.center,
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+    ),
+  );
+
+  Widget _buildApplicationNotifications() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _db.collection('notifications').where('status', isEqualTo: 'sent').snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Notifikasi belum dapat dimuat: ${snapshot.error}'));
+        if (snapshot.hasError) return _emptyState('Notifikasi aplikasi belum dapat dimuat: \${snapshot.error}');
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data!.docs.toList()
-          ..sort((a,b) {
-            final at = a.data()['createdAt'];
-            final bt = b.data()['createdAt'];
-            final av = at is Timestamp ? at.millisecondsSinceEpoch : 0;
-            final bv = bt is Timestamp ? bt.millisecondsSinceEpoch : 0;
-            return bv.compareTo(av);
+          ..sort((a, b) {
+            final av = a.data()['createdAt'];
+            final bv = b.data()['createdAt'];
+            final at = av is Timestamp ? av.millisecondsSinceEpoch : DateTime.tryParse('$av')?.millisecondsSinceEpoch ?? 0;
+            final bt = bv is Timestamp ? bv.millisecondsSinceEpoch : DateTime.tryParse('$bv')?.millisecondsSinceEpoch ?? 0;
+            return bt.compareTo(at);
           });
-        if (docs.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(28),
-              child: Text('Belum ada pengumuman dari admin.', textAlign: TextAlign.center),
-            ),
-          );
-        }
+        if (docs.isEmpty) return _emptyState('Belum ada notifikasi aplikasi.');
         return ListView.separated(
-          padding: const EdgeInsets.all(16), itemCount: docs.length,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+          itemCount: docs.length,
           separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final data = docs[index].data();
             final image = _normalizeImageUrl((data['imageUrl'] ?? '').toString());
-            final stamp = data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate().toLocal() : null;
-            return Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text((data['title'] ?? 'Kalbar Kite').toString(),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                if (stamp != null) Padding(padding: const EdgeInsets.only(top: 3),
-                  child: Text('${stamp.day}/${stamp.month}/${stamp.year} • ${stamp.hour.toString().padLeft(2,'0')}.${stamp.minute.toString().padLeft(2,'0')}',
-                    style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant))),
-                if (image.startsWith('https://')) ...[
-                  const SizedBox(height: 10),
-                  ClipRRect(borderRadius: BorderRadius.circular(12),
-                    child: Image.network(image, width: double.infinity, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink())),
-                ],
-                const SizedBox(height: 8),
-                Text((data['body'] ?? '').toString(), style: const TextStyle(height: 1.45)),
-              ],
-            )));
+            final stamp = _formatNotificationDate(data['createdAt']);
+            return Card(
+              elevation: 0,
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .55)),
+              ),
+              child: InkWell(
+                onTap: () => _handleNotificationData(Map<String, dynamic>.from(data)),
+                child: Padding(
+                  padding: const EdgeInsets.all(15),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text((data['title'] ?? 'Kalbar Kite').toString(),
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                      if (stamp.isNotEmpty) Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(stamp, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                      ),
+                      if (image.startsWith('https://')) ...[
+                        const SizedBox(height: 11),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(13),
+                          child: Image.network(image, width: double.infinity, fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text((data['body'] ?? '').toString(), style: const TextStyle(height: 1.45)),
+                    ],
+                  ),
+                ),
+              ),
+            );
           },
         );
       },
+    );
+  }
+
+  Future<void> _openActivityNotification(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    final data = Map<String, dynamic>.from(doc.data());
+    try {
+      if (data['read'] != true) await doc.reference.update({'read': true});
+    } catch (error) {
+      debugPrint('Status baca notifikasi gagal diperbarui: $error');
+    }
+    if (!mounted) return;
+    final event = (data['event'] ?? '').toString();
+    final routeType = (data['routeType'] ?? '').toString();
+    data['routeType'] = routeType.isNotEmpty
+        ? routeType
+        : event == 'chat' ? 'chat'
+        : event == 'follow' ? 'profile'
+        : event == 'story_reply' || event == 'story_reaction' ? 'story'
+        : 'activity';
+    data['targetId'] ??= data['id'] ?? '';
+    data['routeValue'] ??= data['targetId'];
+    _handleNotificationData(data);
+  }
+
+  Widget _buildActivityNotifications() {
+    final uid = _auth.currentUser?.uid ?? '';
+    if (uid.isEmpty) return _emptyState('Silakan masuk untuk melihat notifikasi aktivitas.');
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _db.collection('user_notifications')
+          .where('receiverUid', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _emptyState('Notifikasi aktivitas belum dapat dimuat: \${snapshot.error}');
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final docs = snapshot.data!.docs.toList()
+          ..sort((a, b) {
+            final av = a.data()['createdAt'];
+            final bv = b.data()['createdAt'];
+            final at = av is Timestamp ? av.millisecondsSinceEpoch : DateTime.tryParse('$av')?.millisecondsSinceEpoch ?? 0;
+            final bt = bv is Timestamp ? bv.millisecondsSinceEpoch : DateTime.tryParse('$bv')?.millisecondsSinceEpoch ?? 0;
+            return bt.compareTo(at);
+          });
+        if (docs.isEmpty) return _emptyState('Belum ada notifikasi aktivitas.');
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final doc = docs[index];
+            final data = doc.data();
+            final actorName = (data['actorName'] ?? 'Pengguna Kalbar Kite').toString();
+            final body = (data['body'] ?? 'Ada aktivitas baru untukmu.').toString();
+            final stamp = _formatNotificationDate(data['createdAt']);
+            final avatar = _normalizeImageUrl((data['avatarUrl'] ?? '').toString());
+            final unread = data['read'] != true;
+            return Card(
+              elevation: 0,
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .55)),
+              ),
+              child: InkWell(
+                onTap: () => _openActivityNotification(doc),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 23,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        backgroundImage: avatar.startsWith('https://') ? NetworkImage(avatar) : null,
+                        child: avatar.startsWith('https://') ? null : const Icon(CupertinoIcons.person_fill),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(actorName, style: TextStyle(fontSize: 15, fontWeight: unread ? FontWeight.w800 : FontWeight.w600)),
+                            if (stamp.isNotEmpty) Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Text(stamp, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                            ),
+                            const SizedBox(height: 7),
+                            Text(body, style: TextStyle(height: 1.4, fontWeight: unread ? FontWeight.w600 : FontWeight.w400)),
+                          ],
+                        ),
+                      ),
+                      if (unread) Container(
+                        width: 9, height: 9, margin: const EdgeInsets.only(top: 6, left: 8),
+                        decoration: const BoxDecoration(color: Color(0xFF20A66A), shape: BoxShape.circle),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      leading: const BackButton(),
+      title: const Text('Notifikasi Kalbar Kite'),
+    ),
+    body: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
+          child: Row(
+            children: [
+              _tabButton('Notifikasi Aplikasi', CupertinoIcons.device_phone_portrait, 0),
+              const SizedBox(width: 10),
+              _tabButton('Notifikasi Aktivitas', CupertinoIcons.bell, 1),
+            ],
+          ),
+        ),
+        Expanded(child: _selectedTab == 0 ? _buildApplicationNotifications() : _buildActivityNotifications()),
+      ],
     ),
   );
 }
