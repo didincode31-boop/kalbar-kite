@@ -2405,11 +2405,50 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
         NavigationDestination(icon: Icon(CupertinoIcons.house), selectedIcon: Icon(CupertinoIcons.house_fill), label: 'Home'),
         NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
         NavigationDestination(icon: Icon(CupertinoIcons.square_grid_2x2), selectedIcon: Icon(CupertinoIcons.square_grid_2x2_fill), label: 'Posting'),
-        NavigationDestination(icon: Icon(CupertinoIcons.chat_bubble_2), selectedIcon: Icon(CupertinoIcons.chat_bubble_2_fill), label: 'Chat'),
+        NavigationDestination(icon: _ChatUnreadNavigationIcon(icon: CupertinoIcons.chat_bubble_2), selectedIcon: _ChatUnreadNavigationIcon(icon: CupertinoIcons.chat_bubble_2_fill), label: 'Chat'),
         NavigationDestination(icon: Icon(CupertinoIcons.person), selectedIcon: Icon(CupertinoIcons.person_fill), label: 'Profile'),
       ],
     )),
   );
+}
+
+class _ChatUnreadNavigationIcon extends StatelessWidget {
+  final IconData icon;
+  const _ChatUnreadNavigationIcon({required this.icon});
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = _auth.currentUser?.uid ?? '';
+    if (uid.isEmpty) return Icon(icon);
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _db.collection('chats').where('participants', arrayContains: uid).snapshots(),
+      builder: (context, snapshot) {
+        final unreadChats = (snapshot.data?.docs ?? []).where((doc) {
+          final data = doc.data();
+          return data['lastSenderUid'] != uid &&
+              data['lastMessageRead'] != true &&
+              data['lastMessageAt'] != null;
+        }).length;
+        return Stack(clipBehavior: Clip.none, children: [
+          Icon(icon),
+          if (unreadChats > 0)
+            Positioned(
+              right: -10, top: -7,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                alignment: Alignment.center,
+                decoration: const BoxDecoration(color: Color(0xFFE53935), shape: BoxShape.circle),
+                child: Text(
+                  unreadChats > 99 ? '99+' : '$unreadChats',
+                  style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800),
+                ),
+              ),
+            ),
+        ]);
+      },
+    );
+  }
 }
 
 Widget _iosBottomBar(BuildContext context, NavigationBar navigationBar) {
