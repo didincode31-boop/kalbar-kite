@@ -832,11 +832,10 @@ Future<void> main() async {
       unawaited(Store.loadCloudData().catchError((_) {}));
     }
   });
-  // Sinkronisasi berjalan setelah UI tampil agar splash screen tidak tertahan jaringan.
+  // Auth listener di atas memulai sinkronisasi satu kali setelah UI tampil.
   if (_auth.currentUser != null) {
     Store.currentEmail = _auth.currentUser!.email ?? '';
     Store.currentUid = _auth.currentUser!.uid;
-    unawaited(Store.loadCloudData().catchError((_) {}));
   }
 }
 
