@@ -9937,10 +9937,12 @@ class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage>
     data['routeType'] = routeType.isNotEmpty
         ? routeType
         : event == 'chat' ? 'chat'
-        : event == 'follow' ? 'profile'
+        : event == 'follow' || event == 'like' || event == 'comment' ? 'profile'
         : event == 'story_reply' || event == 'story_reaction' ? 'story'
         : 'activity';
-    data['targetId'] ??= data['id'] ?? '';
+    data['targetId'] ??= (event == 'follow' || event == 'like' || event == 'comment')
+        ? data['actorUid'] ?? ''
+        : data['id'] ?? '';
     data['routeValue'] ??= data['targetId'];
     _handleNotificationData(data);
   }
