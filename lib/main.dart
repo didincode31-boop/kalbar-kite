@@ -5338,7 +5338,27 @@ class _UpcomingAgendaPreview extends StatelessWidget {
   final bool compact;
   const _UpcomingAgendaPreview({this.compact = false});
   @override Widget build(BuildContext context){
-    final events=Store.eventPosts.where((e)=>e['status']=='published').toList()..sort((a,b)=>(DateTime.tryParse(a['scheduledAt']??'')??DateTime(2100)).compareTo(DateTime.tryParse(b['scheduledAt']??'')??DateTime(2100)));
+    // HomePage is kept alive inside an IndexedStack. Listen for the cloud-data
+    // revision so this preview rebuilds after admin_events finishes loading.
+    return ValueListenableBuilder<int>(
+      valueListenable: Store.appConfigRevision,
+      builder: (context, revision, _) => _buildPreview(context),
+    );
+  }
+
+  Widget _buildPreview(BuildContext context){
+    final events=Store.eventPosts
+      .where((e)=>(e['status']??'published').trim().toLowerCase()=='published')
+      .toList()
+      ..sort((a,b){
+        final da=DateTime.tryParse(a['scheduledAt']??'')??Store._legacyEventDate(KalbarEvent(
+          a['title']??'',a['date']??'',a['time']??'',a['location']??'',a['description']??'',
+        ))??DateTime(2100);
+        final db=DateTime.tryParse(b['scheduledAt']??'')??Store._legacyEventDate(KalbarEvent(
+          b['title']??'',b['date']??'',b['time']??'',b['location']??'',b['description']??'',
+        ))??DateTime(2100);
+        return da.compareTo(db);
+      });
     final event=events.isEmpty?null:events.first;
     if (compact) {
       final theme = Theme.of(context);
