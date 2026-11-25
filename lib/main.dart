@@ -2302,7 +2302,7 @@ class _LoginState extends State<Login> {
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
-                    activeColor: const Color(0xFF0878F9),
+                    activeColor: Theme.of(context).colorScheme.primary,
                     title: Text('Saya setuju dengan ketentuan penggunaan dan kebijakan privasi Kalbar Kite.', style: GoogleFonts.inter(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.35)),
                   ),
                 ],
@@ -2373,7 +2373,7 @@ class _LoginState extends State<Login> {
                   Row(children: [
                     Expanded(child: Divider(color: Theme.of(context).dividerColor, thickness: 1)),
                     Padding(padding: const EdgeInsets.symmetric(horizontal: 15), child: Text('atau', style: GoogleFonts.fredoka(fontSize: 16, color: Theme.of(context).colorScheme.onSurfaceVariant))),
-                    const Expanded(child: Divider(color: Color(0xFFD9DEE8), thickness: 1)),
+                    Expanded(child: Divider(color: Theme.of(context).dividerColor, thickness: 1)),
                   ]),
                   const SizedBox(height: 17),
                   SizedBox(
@@ -2463,7 +2463,7 @@ class _KalbarAuthHeader extends StatelessWidget {
                   fit: BoxFit.cover,
                   filterQuality: FilterQuality.high,
                 ),
-                // Soft white mist at the straight lower edge of the hero image.
+                // Theme-aware fade blends the hero image into the active page surface.
                 Positioned(
                   left: 0,
                   right: 0,
@@ -2475,9 +2475,9 @@ class _KalbarAuthHeader extends StatelessWidget {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.white.withValues(alpha: 0),
-                          Colors.white.withValues(alpha: .22),
-                          Colors.white.withValues(alpha: .78),
+                          Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0),
+                          Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .38),
+                          Theme.of(context).scaffoldBackgroundColor,
                         ],
                         stops: const [0, .58, 1],
                       ),
@@ -2549,22 +2549,30 @@ class _GoogleFourColorPainter extends CustomPainter {
 class _AuthFeatureStrip extends StatelessWidget {
   const _AuthFeatureStrip();
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 9),
-    decoration: BoxDecoration(color: const Color(0xFFF0F6FF), borderRadius: BorderRadius.circular(23)),
-    child: Row(children: const [
-      Expanded(child: _AuthFeature(icon: CupertinoIcons.person_3, title: 'Komunitas', subtitle: 'Lokal', color: Color(0xFF0878F9))),
-      _AuthFeatureDivider(),
-      Expanded(child: _AuthFeature(icon: CupertinoIcons.book, title: 'Cerita &', subtitle: 'Wawasan', color: Color(0xFF0878F9))),
-      _AuthFeatureDivider(),
-      Expanded(child: _AuthFeature(icon: Icons.eco_outlined, title: 'Jaga Warisan', subtitle: 'Kalbar', color: Color(0xFF25A65A))),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final accent = theme.colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 9),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: .55),
+        borderRadius: BorderRadius.circular(23),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: .7)),
+      ),
+      child: Row(children: [
+        Expanded(child: _AuthFeature(icon: CupertinoIcons.person_3, title: 'Komunitas', subtitle: 'Lokal', color: accent)),
+        const _AuthFeatureDivider(),
+        Expanded(child: _AuthFeature(icon: CupertinoIcons.book, title: 'Cerita &', subtitle: 'Wawasan', color: accent)),
+        const _AuthFeatureDivider(),
+        Expanded(child: _AuthFeature(icon: Icons.eco_outlined, title: 'Jaga Warisan', subtitle: 'Kalbar', color: const Color(0xFF25A65A))),
+      ]),
+    );
+  }
 }
 class _AuthFeatureDivider extends StatelessWidget {
   const _AuthFeatureDivider();
   @override
-  Widget build(BuildContext context) => Container(width: 1, height: 57, color: const Color(0xFFD7E1F0));
+  Widget build(BuildContext context) => Container(width: 1, height: 57, color: Theme.of(context).dividerColor);
 }
 class _AuthFeature extends StatelessWidget {
   final IconData icon; final String title, subtitle; final Color color;
@@ -2573,8 +2581,8 @@ class _AuthFeature extends StatelessWidget {
   Widget build(BuildContext context) => Column(children: [
     Icon(icon, color: color, size: 27),
     const SizedBox(height: 6),
-    Text(title, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: const Color(0xFF111B3A), fontWeight: FontWeight.w500)),
-    Text(subtitle, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: const Color(0xFF111B3A), fontWeight: FontWeight.w500)),
+    Text(title, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w500)),
+    Text(subtitle, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500)),
   ]);
 }
 class Home extends StatefulWidget {
