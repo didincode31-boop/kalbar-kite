@@ -29,6 +29,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:file_saver/file_saver.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:record/record.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -6812,7 +6814,11 @@ class _QuranDetailPageState extends State<QuranDetailPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         visualDensity: VisualDensity.compact,
-                        textStyle: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w600),
+                        backgroundColor: const Color(0xFF285C4B),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFF343A38),
+                        disabledForegroundColor: Colors.white70,
+                        textStyle: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
