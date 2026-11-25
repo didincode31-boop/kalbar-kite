@@ -106,7 +106,9 @@ async function handleSocialNotification(request,env,project,access){
     if(!post||!like||like.uid!==actor.uid)throw Object.assign(Error("Aktivitas suka tidak valid."),{status:404});
     recipient=String(post.ownerUid||post.uid||"");
     body="Menyukai postinganmu.";
-    routeType="activity";
+    routeType="profile";
+    targetId=actor.uid;
+    data.postId=id;
   }else if(type==="follow"){
     const follow=await getDoc(project,access,"follows",actor.uid+"_"+id);
     if(!follow||follow.followerUid!==actor.uid||follow.followingUid!==id)throw Object.assign(Error("Aktivitas follow tidak valid."),{status:404});
@@ -123,7 +125,9 @@ async function handleSocialNotification(request,env,project,access){
     if(!post||!comment||!itemId)throw Object.assign(Error("Aktivitas komentar tidak valid."),{status:404});
     recipient=String(post.ownerUid||post.uid||"");
     body="Mengomentari: "+String(comment.body||"postinganmu").slice(0,140);
-    routeType="activity";
+    routeType="profile";
+    targetId=actor.uid;
+    data.postId=id;
   }else if(type==="chat"){
     if(!itemId)throw Object.assign(Error("ID pesan tidak valid."),{status:400});
     const chat=await getDoc(project,access,"chats",id);
@@ -178,6 +182,7 @@ async function handleSocialNotification(request,env,project,access){
     chatId:type==="chat"?id:"",
     peerUid:type==="chat"?actor.uid:"",
     messageId:type==="chat"?itemId:"",
+    postId:type==="like"||type==="comment"?id:"",
     createdAt:new Date().toISOString(),
     read:false
   };
