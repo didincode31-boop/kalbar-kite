@@ -1074,6 +1074,39 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
     return Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(gradient: _chatWallpaperGradients[index])));
   }
 
+  Future<void> _openChatImage(String url) async {
+    if (!url.startsWith('https://')) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (viewerContext) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: const Text('Foto'),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            minScale: .8,
+            maxScale: 4,
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              width: double.infinity,
+              height: double.infinity,
+              loadingBuilder: (context, child, progress) => progress == null
+                  ? child
+                  : const Center(child: CircularProgressIndicator(color: Colors.white)),
+              errorBuilder: (_, __, ___) => const Center(
+                child: Icon(Icons.broken_image_outlined, color: Colors.white70, size: 48),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
+
   Future<void> _openViewOnceImage(String messageId, String url) async {
     try {
       final ref = _db.collection('chats').doc(_chatId).collection('messages').doc(messageId);
@@ -1226,9 +1259,24 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
         ]);
       } else {
         content = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          ClipRRect(borderRadius: BorderRadius.circular(10),
-            child: Image.network(url, width: 250, height: 190, fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Padding(padding: EdgeInsets.all(14), child: Icon(Icons.broken_image_outlined)))),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              onTap: () => _openChatImage(url),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 250, maxHeight: 380),
+                child: Image.network(
+                  url,
+                  width: 250,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Icon(Icons.broken_image_outlined),
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (text.trim().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 7),
             child: Text(text, style: TextStyle(color: foreground, fontSize: 14, height: 1.35))),
         ]);
