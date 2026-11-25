@@ -9807,7 +9807,7 @@ class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage>
     else if (value is DateTime) date = value.toLocal();
     else if (value is String) date = DateTime.tryParse(value)?.toLocal();
     if (date == null) return '';
-    return '\${date.day.toString().padLeft(2, '0')}/\${date.month.toString().padLeft(2, '0')}/\${date.year} • \${date.hour.toString().padLeft(2, '0')}.\${date.minute.toString().padLeft(2, '0')}';
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} • ${date.hour.toString().padLeft(2, '0')}.${date.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _tabButton(String title, IconData icon, int index) {
@@ -9864,7 +9864,7 @@ class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage>
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _db.collection('notifications').where('status', isEqualTo: 'sent').snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return _emptyState('Notifikasi aplikasi belum dapat dimuat: \${snapshot.error}');
+        if (snapshot.hasError) return _emptyState('Notifikasi aplikasi belum dapat dimuat: ${snapshot.error}');
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data!.docs.toList()
           ..sort((a, b) {
@@ -9953,7 +9953,7 @@ class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage>
           .where('receiverUid', isEqualTo: uid)
           .snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return _emptyState('Notifikasi aktivitas belum dapat dimuat: \${snapshot.error}');
+        if (snapshot.hasError) return _emptyState('Notifikasi aktivitas belum dapat dimuat: ${snapshot.error}');
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data!.docs.toList()
           ..sort((a, b) {
