@@ -1115,6 +1115,69 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
     ));
   }
 
+  final Set<String> _downloadingFileUrls = <String>{};
+
+  Future<void> _downloadAndOpenChatFile(String url, String fileName) async {
+    if (!url.startsWith('https://') || _downloadingFileUrls.contains(url)) return;
+    setState(() => _downloadingFileUrls.add(url));
+    try {
+      final response = await http.get(Uri.parse(url))
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
+        throw Exception('Server tidak mengirim file yang valid.');
+      }
+      if (response.bodyBytes.length > 30 * 1024 * 1024) {
+        throw Exception('Ukuran file melebihi batas unduhan 30 MB.');
+      }
+
+      final safeName = fileName
+          .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+          .trim();
+      final finalName = safeName.isEmpty ? 'Lampiran' : safeName;
+      final dot = finalName.lastIndexOf('.');
+      final extension = dot > 0 && dot < finalName.length - 1
+          ? finalName.substring(dot + 1).toLowerCase()
+          : '';
+      final baseName = extension.isEmpty
+          ? finalName
+          : finalName.substring(0, dot);
+
+      // Simpan salinan permanen ke folder Downloads yang terlihat oleh pengguna.
+      await FileSaver.instance.saveToDownloads(
+        name: baseName,
+        bytes: response.bodyBytes,
+        fileExtension: extension,
+        mimeType: MimeType.other,
+      );
+
+      // Buka salinan lokal melalui aplikasi Android yang cocok dengan tipe file.
+      final tempDir = await getTemporaryDirectory();
+      final localFile = File('${tempDir.path}/${finalName}');
+      await localFile.writeAsBytes(response.bodyBytes, flush: true);
+      final result = await OpenFilex.open(localFile.path);
+      if (!mounted) return;
+      if (result.type != ResultType.done) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(
+            'File tersimpan di Downloads, tetapi belum ada aplikasi untuk membukanya: ${result.message}',
+          )),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('File berhasil diunduh: $finalName')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unduhan gagal: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _downloadingFileUrls.remove(url));
+    }
+  }
+
   Future<void> _openViewOnceImage(String messageId, String url) async {
     try {
       final ref = _db.collection('chats').doc(_chatId).collection('messages').doc(messageId);
@@ -1292,8 +1355,9 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
     } else if (type == 'audio' && url.startsWith('https://')) {
       content = _ChatAudioBubble(url: url, mine: mine);
     } else if (type == 'file' && url.startsWith('https://')) {
+      final downloading = _downloadingFileUrls.contains(url);
       content = InkWell(
-        onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+        onTap: downloading ? null : () => _downloadAndOpenChatFile(url, fileName),
         borderRadius: BorderRadius.circular(9),
         child: Container(
           constraints: const BoxConstraints(maxWidth: 230),
@@ -1307,7 +1371,13 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
             const SizedBox(width: 7),
             Flexible(child: Text(fileName, maxLines: 2, overflow: TextOverflow.ellipsis,
               style: TextStyle(color: foreground, fontSize: 14, fontWeight: FontWeight.w600))),
-            const SizedBox(width: 4), Icon(Icons.open_in_new, size: 13, color: foreground.withValues(alpha: .7)),
+            const SizedBox(width: 4),
+            if (downloading)
+              SizedBox(width: 14, height: 14, child: CircularProgressIndicator(
+                strokeWidth: 1.8, color: foreground,
+              ))
+            else
+              Icon(Icons.download_rounded, size: 16, color: foreground.withValues(alpha: .8)),
           ]),
         ),
       );
