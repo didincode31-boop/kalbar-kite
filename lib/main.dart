@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
@@ -1895,45 +1896,18 @@ class Brand extends StatelessWidget {
   const Brand({super.key});
   @override
   Widget build(BuildContext context) {
-    final foreground = Theme.of(context).colorScheme.onSurface;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF27B7C5), Color(0xFF3267C8)],
-            ),
-            borderRadius: BorderRadius.circular(11),
-            boxShadow: const [
-              BoxShadow(color: Color(0x223267C8), blurRadius: 8, offset: Offset(0, 3)),
-            ],
-          ),
-          child: const Center(
-            child: CustomPaint(
-              size: Size(24, 27),
-              painter: _KalbarKiteMarkPainter(),
-            ),
-          ),
+        SvgPicture.asset(
+          'assets/images/kalbar_kite_brand.svg',
+          width: 145,
+          height: 50,
+          fit: BoxFit.contain,
         ),
-        const SizedBox(width: 8),
-        Text(
-          'Kalbar Kite',
-          maxLines: 1,
-          style: GoogleFonts.spaceGrotesk(
-            color: foreground,
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            letterSpacing: -.55,
-          ),
-        ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 5),
         Transform.translate(
-          offset: const Offset(-12, -8),
+          offset: const Offset(-8, -12),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
@@ -1954,43 +1928,6 @@ class Brand extends StatelessWidget {
       ],
     );
   }
-}
-
-class _KalbarKiteMarkPainter extends CustomPainter {
-  const _KalbarKiteMarkPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final white = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.9
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-
-    final kite = Path()
-      ..moveTo(size.width * .5, size.height * .04)
-      ..lineTo(size.width * .94, size.height * .43)
-      ..lineTo(size.width * .5, size.height * .78)
-      ..lineTo(size.width * .06, size.height * .43)
-      ..close();
-    canvas.drawPath(kite, white);
-
-    final spine = Path()
-      ..moveTo(size.width * .5, size.height * .04)
-      ..lineTo(size.width * .5, size.height * .78)
-      ..moveTo(size.width * .06, size.height * .43)
-      ..lineTo(size.width * .94, size.height * .43);
-    canvas.drawPath(spine, white);
-
-    final tail = Path()
-      ..moveTo(size.width * .5, size.height * .78)
-      ..quadraticBezierTo(size.width * .36, size.height * .88, size.width * .56, size.height * .96);
-    canvas.drawPath(tail, white);
-  }
-
-  @override
-  bool shouldRepaint(covariant _KalbarKiteMarkPainter oldDelegate) => false;
 }
 
 class Login extends StatefulWidget {
