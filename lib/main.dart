@@ -360,7 +360,7 @@ Future<NotificationDetails> _socialNotificationDetails(Map<String,dynamic> data)
       groupKey:isChat?'kalbar_kite_chat_${data['chatId']??'inbox'}':'kalbar_kite_social',
       setAsGroupSummary:false,autoCancel:true,onlyAlertOnce:false,
     ),
-    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true),
+    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:false),
   );
 }
 
@@ -463,7 +463,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
     'kalbar_kite_social','Aktivitas Kalbar Kite',
     description:'Chat, pengikut, suka, komentar, dan story',
-    importance:Importance.max,playSound:true,
+    importance:Importance.max,playSound:false,
   ));
   final data=message.data;
   if(data['type']=='social'){
@@ -481,7 +481,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       const NotificationDetails(android:AndroidNotificationDetails(
         'kalbar_kite_updates','Notifikasi Kalbar Kite',
         channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
-        icon:'ic_launcher',importance:Importance.high,priority:Priority.high,
+        icon:'ic_launcher',importance:Importance.high,priority:Priority.high,playSound:false,
       )),
       payload:jsonEncode(data),
     );
@@ -517,13 +517,14 @@ Future<void> _initializeNotifications(User user) async {
         'kalbar_kite_updates', 'Notifikasi Kalbar Kite',
         description: 'Pengumuman, berita, dan informasi Kalbar Kite',
         importance: Importance.high,
+        playSound: false,
       );
       final androidPlugin = localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.createNotificationChannel(channel);
       const socialChannel = AndroidNotificationChannel(
         'kalbar_kite_social', 'Aktivitas sosial',
         description: 'Chat, pengikut, suka, komentar, dan story',
-        importance: Importance.high, playSound: true,
+        importance: Importance.high, playSound: false,
       );
       await androidPlugin?.createNotificationChannel(socialChannel);
       FirebaseMessaging.onMessage.listen(_showForegroundNotification);
@@ -630,10 +631,10 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
     android:AndroidNotificationDetails(
       'kalbar_kite_updates','Notifikasi Kalbar Kite',
       channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
-      icon:'ic_launcher',importance:Importance.high,priority:Priority.high,
+      icon:'ic_launcher',importance:Importance.high,priority:Priority.high,playSound:false,
       showWhen:true,when:DateTime.now().millisecondsSinceEpoch,
     ),
-    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true),
+    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:false),
   );
   await localNotifications.show(id,title,body,details,payload:jsonEncode(data));
 }
