@@ -217,6 +217,8 @@ jobs:
       - name: Set Kalbar Kite launcher icon
         run: |
           mkdir -p android/app/src/main/res/drawable android/app/src/main/res/mipmap-anydpi-v26 android/app/src/main/res/values
+          # Remove the old raster with the same resource name; it shadowed the crisp vector launcher.
+          rm -f android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.jpg
           # Use a crisp vector launcher icon; the full wordmark is scaled inside Android's safe zone.
           test -s android/app/src/main/res/drawable/ic_kalbar_kite_launcher.xml
           cat > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'XML'
