@@ -1901,8 +1901,8 @@ class Brand extends StatelessWidget {
       children: [
         SvgPicture.asset(
           'assets/images/kalbar_kite_brand.svg',
-          width: 145,
-          height: 50,
+          width: 88,
+          height: 60,
           fit: BoxFit.contain,
         ),
         const SizedBox(width: 5),
@@ -9141,8 +9141,6 @@ class _ProfilePageState extends State<ProfilePage> {
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactPage()))),
           _profileTile(Icons.shield_outlined, 'Privasi & Kebijakan', 'Ringkasan pengelolaan data pengguna',
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()))),
-          _profileTile(Icons.verified_outlined, 'Versi aplikasi', 'Kalbar Kite • Versi 1.0.0', null,
-            showDivider: false, showArrow: false),
         ]),
         const SizedBox(height: 16),
         SizedBox(width: double.infinity, child: FilledButton.icon(
@@ -9158,18 +9156,22 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         )),
         const SizedBox(height: 28),
-        Center(child: Column(children: [
-          Container(width: 76, height: 76,
-            decoration: const BoxDecoration(color: pale, shape: BoxShape.circle),
-            child: const Icon(Icons.send_rounded, color: forest, size: 36)),
-          const SizedBox(height: 12),
-          Text('Kalbar Kite • Versi 1.0.0',
-            style: GoogleFonts.fredoka(fontSize: 19, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
-          const SizedBox(height: 5),
-          Text('Budaya, cerita, dan kepedulian Kalimantan Barat.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
-        ])),
+         Center(child: Column(children: [
+           ClipRRect(
+             borderRadius: BorderRadius.circular(12),
+             child: SvgPicture.asset(
+               'assets/images/kalbar_kite_brand.svg',
+               width: 142,
+               height: 102,
+               fit: BoxFit.contain,
+             ),
+           ),
+           const SizedBox(height: 8),
+           Text('Budaya, cerita, dan kepedulian Kalimantan Barat.',
+             textAlign: TextAlign.center,
+             style: GoogleFonts.fredoka(fontSize: 15, fontWeight: FontWeight.w600,
+               color: theme.colorScheme.onSurfaceVariant)),
+         ])),
       ],
     ));
   }
