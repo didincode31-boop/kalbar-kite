@@ -482,6 +482,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
         'kalbar_kite_updates','Notifikasi Kalbar Kite',
         channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
         icon:'ic_launcher',importance:Importance.high,priority:Priority.high,
+        playSound:true,
       )),
       payload:jsonEncode(data),
     );
@@ -632,7 +633,7 @@ Future<void> _showForegroundNotification(RemoteMessage message) async {
       'kalbar_kite_updates','Notifikasi Kalbar Kite',
       channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
       icon:'ic_launcher',importance:Importance.high,priority:Priority.high,
-      showWhen:true,when:DateTime.now().millisecondsSinceEpoch,
+      playSound:true,showWhen:true,when:DateTime.now().millisecondsSinceEpoch,
     ),
     iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:true),
   );
@@ -8343,7 +8344,8 @@ class _InfoTimelineItem extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: 14),
-            Text(_body, style: GoogleFonts.inter(fontSize: 15, height: 1.6,
+            Text(_body, style: GoogleFonts.nunitoSans(
+              fontSize: 15, height: 1.65, fontWeight: FontWeight.w500,
               color: theme.colorScheme.onSurface)),
           ],
         ),
