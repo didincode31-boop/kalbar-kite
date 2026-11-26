@@ -47,5 +47,6 @@ flutter:
   assets:
     - assets/images/kalbar_kite_login.png
     - assets/images/kalbar_kite_header_logo.png
+    - assets/images/kalbar_kite_brand.svg
     - assets/images/Festival Budaya Katulistiwa di Pontianak.png
     - assets/audio/Generated Audio November 20, 2026 - 11_04PM.wav
