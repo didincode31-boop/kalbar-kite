@@ -214,13 +214,40 @@ jobs:
           text = text.replace('android:label="kalbarku"', 'android:label="Kalbar Kite"')
           path.write_text(text)
           PY
+      - name: Prepare logo image tools
+        run: |
+          python3 -m venv "$RUNNER_TEMP/kalbar-image-venv"
+          "$RUNNER_TEMP/kalbar-image-venv/bin/pip" install --quiet Pillow
       - name: Set Kalbar Kite launcher icon
         run: |
-          mkdir -p android/app/src/main/res/drawable android/app/src/main/res/mipmap-anydpi-v26 android/app/src/main/res/values
-          # Remove the old raster with the same resource name; it shadowed the crisp vector launcher.
-          rm -f android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.jpg
-          # Use a crisp vector launcher icon; the full wordmark is scaled inside Android's safe zone.
-          test -s android/app/src/main/res/drawable/ic_kalbar_kite_launcher.xml
+          mkdir -p android/app/src/main/res/drawable android/app/src/main/res/drawable-nodpi android/app/src/main/res/mipmap-anydpi-v26 android/app/src/main/res/values
+          # Derive the Android-safe foreground directly from the uploaded, cropped original logo.
+          "$RUNNER_TEMP/kalbar-image-venv/bin/python" - <<'PY'
+          from PIL import Image, ImageChops
+          from pathlib import Path
+
+          source = Image.open("assets/images/kalbar_kite_profile_icon.png").convert("RGB")
+          white = Image.new("RGB", source.size, (255, 255, 255))
+          difference = ImageChops.difference(source, white).convert("L")
+          bbox = difference.point(lambda value: 255 if value > 12 else 0).getbbox()
+          if not bbox:
+              raise SystemExit("Original Kalbar Kite logo has no visible artwork.")
+          logo = source.crop(bbox).convert("RGBA")
+          rgb = logo.convert("RGB")
+          alpha = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (255, 255, 255))).convert("L")
+          alpha = alpha.point(lambda value: 0 if value < 8 else min(255, (value - 8) * 5))
+          logo.putalpha(alpha)
+          target_width = 260
+          target_height = round(logo.height * target_width / logo.width)
+          logo = logo.resize((target_width, target_height), Image.Resampling.LANCZOS)
+          canvas = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+          canvas.alpha_composite(logo, ((432 - target_width) // 2, (432 - target_height) // 2))
+          output = Path("android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.png")
+          canvas.save(output, optimize=True)
+          print(f"Created launcher logo from original asset: {output} ({target_width}x{target_height} artwork)")
+          PY
+          rm -f android/app/src/main/res/drawable/ic_kalbar_kite_launcher.xml android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.jpg
+          test -s android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.png
           cat > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'XML'
           <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
               <background android:drawable="@color/ic_launcher_background" />
