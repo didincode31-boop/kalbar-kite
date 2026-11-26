@@ -232,48 +232,30 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
           res = Path("android/app/src/main/res")
           (res / "drawable").mkdir(parents=True, exist_ok=True)
           (res / "values-v31").mkdir(parents=True, exist_ok=True)
 
-          # Keep the legacy launch window as a plain background. The logo is
-          # supplied once, by Android 12+'s splash animated icon below.
+          # Legacy Android launch window: background only, no second logo.
           (res / "drawable/launch_background.xml").write_text("""<?xml version="1.0" encoding="utf-8"?>
           <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
               <item android:drawable="#FFFEFA" />
           </layer-list>
           """)
 
-          styles = res / "values-v31/styles.xml"
-          if styles.exists():
-              text = styles.read_text()
-          else:
-              text = """<?xml version="1.0" encoding="utf-8"?>
+          # Android 12+: show the supplied launcher image exactly once.
+          (res / "values-v31/styles.xml").write_text("""<?xml version="1.0" encoding="utf-8"?>
           <resources>
               <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+                  <item name="android:windowSplashScreenBackground">#FFFEFA</item>
+                  <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_kalbar_kite_launcher</item>
+                  <item name="android:windowSplashScreenIconBackgroundColor">#FFFEFA</item>
+                  <item name="android:windowBackground">@drawable/launch_background</item>
               </style>
           </resources>
-          """
-
-          def set_item(source, name, value):
-              pattern = rf'(<item\\s+name="{re.escape(name)}"\\s*>).*?(</item>)'
-              updated, count = re.subn(pattern, lambda m: m.group(1) + value + m.group(2), source, count=1, flags=re.S)
-              if count:
-                  return updated
-              marker = re.search(r'(<style\\s+name="LaunchTheme"[^>]*>)', source)
-              if not marker:
-                  raise SystemExit("LaunchTheme not found in values-v31/styles.xml")
-              return source[:marker.end()] + f'\\n        <item name="{name}">{value}</item>' + source[marker.end():]
-
-          text = set_item(text, "android:windowSplashScreenBackground", "#FFFEFA")
-          text = set_item(text, "android:windowSplashScreenAnimatedIcon", "@drawable/ic_kalbar_kite_launcher")
-          text = set_item(text, "android:windowSplashScreenIconBackgroundColor", "#FFFEFA")
-          # Do not render a second brand mark under the centered splash icon.
-          text = re.sub(r'\\s*<item\\s+name="android:windowSplashScreenBrandingImage"\\s*>.*?</item>', '', text, flags=re.S)
-          styles.write_text(text)
-          print("Android splash now uses exactly one Kalbar Kite logo image.")
+          """)
+          print("Splash uses one centered Kalbar Kite logo; no second branding image.")
           PY
       - name: Configure Firebase Android
         run: |
