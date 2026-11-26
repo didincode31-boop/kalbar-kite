@@ -1894,39 +1894,103 @@ class AuthGate extends StatelessWidget {
 class Brand extends StatelessWidget {
   const Brand({super.key});
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Image.asset(
-        'assets/images/kalbar_kite_header_logo.png',
-        width: 148,
-        height: 42,
-        fit: BoxFit.contain,
-        filterQuality: FilterQuality.high,
-        semanticLabel: 'Kalbar Kite',
-      ),
-      const SizedBox(width: 6),
-      Transform.translate(
-        offset: const Offset(-12, -8),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+  Widget build(BuildContext context) {
+    final foreground = Theme.of(context).colorScheme.onSurface;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
           decoration: BoxDecoration(
-            color: const Color(0xFFE32636),
-            borderRadius: BorderRadius.circular(5),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF27B7C5), Color(0xFF3267C8)],
+            ),
+            borderRadius: BorderRadius.circular(11),
+            boxShadow: const [
+              BoxShadow(color: Color(0x223267C8), blurRadius: 8, offset: Offset(0, 3)),
+            ],
           ),
-          child: Text(
-            'BETA',
-            style: GoogleFonts.fredoka(
-              color: Colors.white,
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              letterSpacing: .2,
+          child: const Center(
+            child: CustomPaint(
+              size: Size(24, 27),
+              painter: _KalbarKiteMarkPainter(),
             ),
           ),
         ),
-      ),
-    ],
-  );
+        const SizedBox(width: 8),
+        Text(
+          'Kalbar Kite',
+          maxLines: 1,
+          style: GoogleFonts.spaceGrotesk(
+            color: foreground,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -.55,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Transform.translate(
+          offset: const Offset(-12, -8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE32636),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              'BETA',
+              style: GoogleFonts.fredoka(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: .2,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _KalbarKiteMarkPainter extends CustomPainter {
+  const _KalbarKiteMarkPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final white = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.9
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+
+    final kite = Path()
+      ..moveTo(size.width * .5, size.height * .04)
+      ..lineTo(size.width * .94, size.height * .43)
+      ..lineTo(size.width * .5, size.height * .78)
+      ..lineTo(size.width * .06, size.height * .43)
+      ..close();
+    canvas.drawPath(kite, white);
+
+    final spine = Path()
+      ..moveTo(size.width * .5, size.height * .04)
+      ..lineTo(size.width * .5, size.height * .78)
+      ..moveTo(size.width * .06, size.height * .43)
+      ..lineTo(size.width * .94, size.height * .43);
+    canvas.drawPath(spine, white);
+
+    final tail = Path()
+      ..moveTo(size.width * .5, size.height * .78)
+      ..quadraticBezierTo(size.width * .36, size.height * .88, size.width * .56, size.height * .96);
+    canvas.drawPath(tail, white);
+  }
+
+  @override
+  bool shouldRepaint(covariant _KalbarKiteMarkPainter oldDelegate) => false;
 }
 
 class Login extends StatefulWidget {
