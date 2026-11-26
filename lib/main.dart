@@ -966,16 +966,16 @@ class Store {
     if (_auth.currentUser != null) {
       try { final token = await _auth.currentUser!.getIdTokenResult().timeout(const Duration(seconds: 6)); adminRole = token.claims?['admin'] == true; } catch (_) { adminRole = false; }
     }
-    // Default tampilan baru Kalbar Kite: dark mode.
-    // Migrasi satu kali agar instalasi lama yang sebelumnya tersimpan light
-    // juga langsung beralih ke dark setelah update. Pilihan pengguna setelah
-    // migrasi tetap disimpan seperti biasa.
-    final darkModeDefaultApplied = prefs?.getBool('darkModeDefaultAppliedV1') ?? false;
-    if (!darkModeDefaultApplied) {
-      await prefs?.setBool('isDarkMode', true);
-      await prefs?.setBool('darkModeDefaultAppliedV1', true);
+    // Tema utama Kalbar Kite menggunakan mode terang.
+    // Migrasi satu kali memastikan instalasi lama yang tersimpan dalam mode
+    // gelap juga kembali ke mode terang setelah pembaruan ini. Pilihan tema
+    // pengguna setelah migrasi tetap dapat diubah melalui tombol tema.
+    final lightModeDefaultApplied = prefs?.getBool('lightModeDefaultAppliedV2') ?? false;
+    if (!lightModeDefaultApplied) {
+      await prefs?.setBool('isDarkMode', false);
+      await prefs?.setBool('lightModeDefaultAppliedV2', true);
     }
-    isDarkMode = prefs?.getBool('isDarkMode') ?? true;
+    isDarkMode = prefs?.getBool('isDarkMode') ?? false;
     darkMode.value = isDarkMode;
   }
   static Future<void> setDarkMode(bool value) async {
@@ -1907,7 +1907,7 @@ class Brand extends StatelessWidget {
       ),
       const SizedBox(width: 6),
       Transform.translate(
-        offset: const Offset(0, -8),
+        offset: const Offset(-12, -8),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
           decoration: BoxDecoration(
