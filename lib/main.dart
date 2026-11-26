@@ -1901,8 +1901,8 @@ class Brand extends StatelessWidget {
       children: [
         SvgPicture.asset(
           'assets/images/kalbar_kite_brand.svg',
-          width: 88,
-          height: 60,
+          width: 145,
+          height: 50,
           fit: BoxFit.contain,
         ),
         const SizedBox(width: 5),
@@ -9159,11 +9159,18 @@ class _ProfilePageState extends State<ProfilePage> {
          Center(child: Column(children: [
            ClipRRect(
              borderRadius: BorderRadius.circular(12),
-             child: SvgPicture.asset(
-               'assets/images/kalbar_kite_brand.svg',
-               width: 142,
-               height: 102,
-               fit: BoxFit.contain,
+             child: Container(
+               width: 88,
+               height: 88,
+               padding: const EdgeInsets.all(5),
+               decoration: BoxDecoration(
+                 color: Colors.white,
+                 borderRadius: BorderRadius.circular(14),
+               ),
+               child: SvgPicture.asset(
+                 'assets/images/kalbar_kite_app_icon.svg',
+                 fit: BoxFit.contain,
+               ),
              ),
            ),
            const SizedBox(height: 8),
