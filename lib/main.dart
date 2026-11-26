@@ -10193,21 +10193,48 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
     }
     setState(() => _sending = true);
     try {
+      final user = _auth.currentUser;
+      if (user == null) throw Exception('Sesi admin berakhir. Silakan login ulang.');
       var imageUrl = _imageUrl;
       if (_localImage.isNotEmpty) imageUrl = await Store.uploadImage(_localImage, 'notifications');
-      await _db.collection('notifications').add({
-        'title': title, 'body': body, 'imageUrl': imageUrl,
-        'routeType': _routeType == 'dashboard_info' ? 'info' : _routeType,
-        'routeValue': _routeType == 'dashboard_info' ? 'dashboard' : (_routeType == 'url' ? target : ''),
-        'audience': 'all', 'status': 'queued',
-        'createdBy': _auth.currentUser?.uid ?? '',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final idToken = await user.getIdToken();
+      if (idToken == null || idToken.isEmpty) throw Exception('Token autentikasi tidak tersedia. Silakan login ulang.');
+      // Kirim langsung melalui endpoint FCM yang juga digunakan website admin.
+      // Menulis dokumen berstatus queued saja tidak mengirim push ke perangkat.
+      final response = await http.post(
+        Uri.parse('https://kalbarkite.dcxcomunity.my.id/api/send-notification'),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({'title': title, 'body': body, 'imageUrl': imageUrl}),
+      ).timeout(const Duration(seconds: 35));
+      Map<String, dynamic> result = {};
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) result = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+      if (response.statusCode < 200 || response.statusCode >= 300 || result['ok'] != true) {
+        final detail = (result['error'] ?? (result['errors'] is List ? (result['errors'] as List).join(' | ') : '')).toString();
+        throw Exception(detail.isNotEmpty ? detail : 'Server FCM menolak pengiriman (HTTP ${response.statusCode}).');
+      }
+      final sent = (result['sent'] as num?)?.toInt() ?? 0;
+      final failed = (result['failed'] as num?)?.toInt() ?? 0;
+      if (sent < 1) {
+        final errors = result['errors'] is List ? (result['errors'] as List).join(' | ') : '';
+        throw Exception(errors.isNotEmpty ? errors : 'Belum ada perangkat yang menerima permintaan FCM.');
+      }
       _title.clear(); _body.clear(); _url.clear();
       setState(() { _imageUrl = ''; _localImage = ''; _routeType = 'none'; });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifikasi masuk antrean pengiriman.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text('FCM menerima pengiriman ke $sent perangkat. Gagal: $failed. Ini konfirmasi server, bukan tanda notifikasi sudah tampil di layar.'),
+        ));
+      }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Notifikasi gagal dibuat: $error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Notifikasi gagal dikirim: ${error.toString().replaceFirst('Exception: ', '')}')));
     } finally { if (mounted) setState(() => _sending = false); }
   }
 
