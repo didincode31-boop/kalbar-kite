@@ -9158,9 +9158,9 @@ class _ProfilePageState extends State<ProfilePage> {
         const SizedBox(height: 28),
          Center(child: Column(children: [
            SvgPicture.asset(
-             'assets/images/kalbar_kite_brand.svg',
-             width: 116,
-             height: 40,
+             'assets/images/kalbar_kite_profile_icon.svg',
+             width: 56,
+             height: 56,
              fit: BoxFit.contain,
            ),
            const SizedBox(height: 8),
