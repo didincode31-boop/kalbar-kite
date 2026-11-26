@@ -61,6 +61,10 @@ jobs:
             ${{ runner.os }}-kalbarkite-android-cache-
       - name: Generate Android project files
         run: flutter create --platforms=android --project-name kalbarku .
+      - name: Install Kalbar Kite custom notification sound
+        run: |
+          mkdir -p android/app/src/main/res/raw
+          cp assets/audio/kalbar_kite_notification.mp3 android/app/src/main/res/raw/kalbar_kite_notification.mp3
       - name: Declare Android camera permission
         run: |
           python3 - <<'PY'
