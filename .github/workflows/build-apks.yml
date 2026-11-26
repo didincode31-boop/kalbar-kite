@@ -217,8 +217,8 @@ jobs:
       - name: Set Kalbar Kite launcher icon
         run: |
           mkdir -p android/app/src/main/res/drawable android/app/src/main/res/mipmap-anydpi-v26 android/app/src/main/res/values
-          # Use the exact supplied Kalbar Kite logo image for the adaptive launcher icon.
-          test -s android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.jpg
+          # Use a crisp vector launcher icon; the full wordmark is scaled inside Android's safe zone.
+          test -s android/app/src/main/res/drawable/ic_kalbar_kite_launcher.xml
           cat > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml <<'XML'
           <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
               <background android:drawable="@color/ic_launcher_background" />
