@@ -217,7 +217,7 @@ jobs:
       - name: Prepare logo image tools
         run: |
           python3 -m venv "$RUNNER_TEMP/kalbar-image-venv"
-          "$RUNNER_TEMP/kalbar-image-venv/bin/pip" install --quiet Pillow
+          "$RUNNER_TEMP/kalbar-image-venv/bin/pip" install --quiet Pillow CairoSVG
       - name: Set Kalbar Kite launcher icon
         run: |
           mkdir -p android/app/src/main/res/drawable android/app/src/main/res/drawable-nodpi android/app/src/main/res/mipmap-anydpi-v26 android/app/src/main/res/values
@@ -226,6 +226,16 @@ jobs:
           from PIL import Image, ImageChops
           from pathlib import Path
 
+          import cairosvg
+          
+          # Rebuild the profile/launcher PNG from the checked-in square app-icon SVG.
+          # The old PNG was corrupt/truncated, which caused Pillow's UnidentifiedImageError.
+          cairosvg.svg2png(
+              url="assets/images/kalbar_kite_app_icon.svg",
+              write_to="assets/images/kalbar_kite_profile_icon.png",
+              output_width=512,
+              output_height=512,
+          )
           source = Image.open("assets/images/kalbar_kite_profile_icon.png").convert("RGB")
           white = Image.new("RGB", source.size, (255, 255, 255))
           difference = ImageChops.difference(source, white).convert("L")
@@ -237,7 +247,7 @@ jobs:
           alpha = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (255, 255, 255))).convert("L")
           alpha = alpha.point(lambda value: 0 if value < 8 else min(255, (value - 8) * 5))
           logo.putalpha(alpha)
-          target_width = 260
+          target_width = 292
           target_height = round(logo.height * target_width / logo.width)
           logo = logo.resize((target_width, target_height), Image.Resampling.LANCZOS)
           canvas = Image.new("RGBA", (432, 432), (0, 0, 0, 0))

@@ -9157,12 +9157,11 @@ class _ProfilePageState extends State<ProfilePage> {
         )),
         const SizedBox(height: 28),
          Center(child: Column(children: [
-           Image.asset(
-             'assets/images/kalbar_kite_profile_icon.png',
-             width: 112,
-             height: 112,
+           SvgPicture.asset(
+             'assets/images/kalbar_kite_app_icon.svg',
+             width: 76,
+             height: 76,
              fit: BoxFit.contain,
-             filterQuality: FilterQuality.high,
            ),
            const SizedBox(height: 8),
            Text('Budaya, cerita, dan kepedulian Kalimantan Barat.',
