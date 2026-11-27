@@ -1893,6 +1893,8 @@ class AuthGate extends StatelessWidget {
 }
 
 class _KalbarKiteMarkPainter extends CustomPainter {
+  const _KalbarKiteMarkPainter();
+
   @override
   void paint(Canvas canvas, Size size) {
     final scale = size.width / 40;
