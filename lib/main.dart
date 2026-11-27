@@ -1892,22 +1892,82 @@ class AuthGate extends StatelessWidget {
   }
 }
 
+class _KalbarKiteMarkPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 40;
+    canvas.save();
+    canvas.scale(scale, scale);
+
+    final yellow = Paint()..color = const Color(0xFFF5B91F)..style = PaintingStyle.fill;
+    final green = Paint()..color = const Color(0xFF124D2A)..style = PaintingStyle.fill;
+    final red = Paint()..color = const Color(0xFFD71920)..style = PaintingStyle.fill;
+
+    final kite = Path()
+      ..moveTo(22, 2)
+      ..lineTo(36, 7)
+      ..lineTo(25, 27)
+      ..lineTo(12, 19)
+      ..close();
+    canvas.drawPath(kite, yellow);
+
+    final wing = Path()
+      ..moveTo(12, 19)
+      ..quadraticBezierTo(17, 10, 27, 12)
+      ..quadraticBezierTo(23, 19, 17, 25)
+      ..lineTo(8, 34)
+      ..quadraticBezierTo(11, 24, 12, 19)
+      ..close();
+    canvas.drawPath(wing, green);
+
+    final ribbon = Path()
+      ..moveTo(10, 8)
+      ..quadraticBezierTo(19, 1, 29, 8)
+      ..quadraticBezierTo(24, 10, 19, 8)
+      ..quadraticBezierTo(14, 7, 11, 12)
+      ..close();
+    canvas.drawPath(ribbon, red);
+
+    final tail = Path()
+      ..moveTo(9, 29)
+      ..quadraticBezierTo(5, 35, 1, 36);
+    canvas.drawPath(tail, Paint()
+      ..color = const Color(0xFF124D2A)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round);
+
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 class Brand extends StatelessWidget {
   const Brand({super.key});
+
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SvgPicture.asset(
-          'assets/images/kalbar_kite_brand.svg',
-          width: 108,
-          height: 56,
-          fit: BoxFit.contain,
+        const CustomPaint(
+          size: Size(36, 36),
+          painter: _KalbarKiteMarkPainter(),
         ),
         const SizedBox(width: 5),
+        Text(
+          'Kalbar Kite',
+          style: GoogleFonts.fredoka(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: const Color(0xFF124D2A),
+          ),
+        ),
+        const SizedBox(width: 7),
         Transform.translate(
-          offset: const Offset(-8, -12),
+          offset: const Offset(0, -9),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             decoration: BoxDecoration(
