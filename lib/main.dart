@@ -1843,21 +1843,37 @@ class _PostLoginSplashState extends State<_PostLoginSplash> {
 class Brand extends StatelessWidget {
   const Brand({super.key});
   @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-    Container(width: 34, height: 34, decoration: BoxDecoration(color: pale, borderRadius: BorderRadius.circular(11)), child: const Icon(CupertinoIcons.paperplane_fill, color: Color(0xFF007AFF), size: 20)),
-    const SizedBox(width: 8),
-    Text(Store.appName, style: GoogleFonts.fredoka(fontSize: 21, fontWeight: FontWeight.w700, letterSpacing: -.3, color: Theme.of(context).colorScheme.onSurface)),
-    const SizedBox(width: 5),
-    Transform.translate(
-      offset: const Offset(0, -8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(color: const Color(0xFFE32636), borderRadius: BorderRadius.circular(5)),
-        child: Text('BARU', style: GoogleFonts.fredoka(
-          color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: .2)),
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Image.asset(
+        'assets/images/kalbar_kite_header_logo.png',
+        width: 108,
+        height: 56,
+        fit: BoxFit.contain,
       ),
-    ),
-  ]);
+      const SizedBox(width: 5),
+      Transform.translate(
+        offset: const Offset(-8, -12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE32636),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Text(
+            'BETA',
+            style: GoogleFonts.fredoka(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              letterSpacing: .2,
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 class Login extends StatefulWidget {
