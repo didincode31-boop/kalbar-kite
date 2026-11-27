@@ -1954,20 +1954,15 @@ class Brand extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const CustomPaint(
-          size: Size(36, 36),
-          painter: _KalbarKiteMarkPainter(),
+        Image.asset(
+          'assets/images/kalbar_kite_header_logo.webp',
+          width: 148,
+          height: 48,
+          fit: BoxFit.contain,
+          alignment: Alignment.centerLeft,
+          filterQuality: FilterQuality.high,
         ),
         const SizedBox(width: 5),
-        Text(
-          'Kalbar Kite',
-          style: GoogleFonts.fredoka(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: const Color(0xFF124D2A),
-          ),
-        ),
-        const SizedBox(width: 7),
         Transform.translate(
           offset: const Offset(0, -9),
           child: Container(
