@@ -1901,8 +1901,8 @@ class Brand extends StatelessWidget {
       children: [
         SvgPicture.asset(
           'assets/images/kalbar_kite_brand.svg',
-          width: 145,
-          height: 50,
+          width: 108,
+          height: 76,
           fit: BoxFit.contain,
         ),
         const SizedBox(width: 5),
@@ -9159,8 +9159,8 @@ class _ProfilePageState extends State<ProfilePage> {
          Center(child: Column(children: [
            SvgPicture.asset(
              'assets/images/kalbar_kite_app_icon.svg',
-             width: 76,
-             height: 76,
+             width: 108,
+             height: 80,
              fit: BoxFit.contain,
            ),
            const SizedBox(height: 8),

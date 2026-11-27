@@ -221,40 +221,37 @@ jobs:
       - name: Set Kalbar Kite launcher icon
         run: |
           mkdir -p android/app/src/main/res/drawable android/app/src/main/res/drawable-nodpi android/app/src/main/res/mipmap-anydpi-v26 android/app/src/main/res/values
-          # Derive the Android-safe foreground directly from the uploaded, cropped original logo.
+          # Render the transparent, tightly-cropped vector logo. Preserve its alpha channel.
           "$RUNNER_TEMP/kalbar-image-venv/bin/python" - <<'PY'
-          from PIL import Image, ImageChops
+          from PIL import Image
           from pathlib import Path
-
           import cairosvg
-          
-          # Rebuild the profile/launcher PNG from the checked-in square app-icon SVG.
-          # The old PNG was corrupt/truncated, which caused Pillow's UnidentifiedImageError.
+
+          source_path = Path("assets/images/kalbar_kite_app_icon.svg")
+          profile_path = Path("assets/images/kalbar_kite_profile_icon.png")
           cairosvg.svg2png(
-              url="assets/images/kalbar_kite_app_icon.svg",
-              write_to="assets/images/kalbar_kite_profile_icon.png",
-              output_width=512,
-              output_height=512,
+              url=str(source_path),
+              write_to=str(profile_path),
+              output_width=1024,
+              output_height=708,
           )
-          source = Image.open("assets/images/kalbar_kite_profile_icon.png").convert("RGB")
-          white = Image.new("RGB", source.size, (255, 255, 255))
-          difference = ImageChops.difference(source, white).convert("L")
-          bbox = difference.point(lambda value: 255 if value > 12 else 0).getbbox()
+
+          source = Image.open(profile_path).convert("RGBA")
+          alpha = source.getchannel("A")
+          bbox = alpha.getbbox()
           if not bbox:
-              raise SystemExit("Original Kalbar Kite logo has no visible artwork.")
-          logo = source.crop(bbox).convert("RGBA")
-          rgb = logo.convert("RGB")
-          alpha = ImageChops.difference(rgb, Image.new("RGB", rgb.size, (255, 255, 255))).convert("L")
-          alpha = alpha.point(lambda value: 0 if value < 8 else min(255, (value - 8) * 5))
-          logo.putalpha(alpha)
-          target_width = 292
+              raise SystemExit("Transparent Kalbar Kite logo has no visible artwork.")
+          logo = source.crop(bbox)
+
+          # Launcher safe area: preserve the complete bird + wordmark without clipping.
+          target_width = 300
           target_height = round(logo.height * target_width / logo.width)
           logo = logo.resize((target_width, target_height), Image.Resampling.LANCZOS)
           canvas = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
           canvas.alpha_composite(logo, ((432 - target_width) // 2, (432 - target_height) // 2))
           output = Path("android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.png")
           canvas.save(output, optimize=True)
-          print(f"Created launcher logo from original asset: {output} ({target_width}x{target_height} artwork)")
+          print(f"Created transparent launcher logo: {output} ({target_width}x{target_height} artwork)")
           PY
           rm -f android/app/src/main/res/drawable/ic_kalbar_kite_launcher.xml android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.jpg
           test -s android/app/src/main/res/drawable-nodpi/ic_kalbar_kite_launcher.png
