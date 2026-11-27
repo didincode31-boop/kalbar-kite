@@ -1899,8 +1899,8 @@ class Brand extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Image.asset(
-          'assets/images/kalbar_kite_header_logo.png',
+        SvgPicture.asset(
+          'assets/images/kalbar_kite_brand.svg',
           width: 108,
           height: 56,
           fit: BoxFit.contain,
