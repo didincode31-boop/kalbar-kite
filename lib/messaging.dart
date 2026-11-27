@@ -237,7 +237,10 @@ class _ChatListPageState extends State<ChatListPage> {
     final isArchived = _archived.contains(uid);
     final isImportant = _important.contains(uid);
     final lastTime = _chatTime(item['lastMessageAt']);
-    final read = item['lastSenderUid'] == _auth.currentUser?.uid && item['lastMessageRead'] == true;
+    final currentUid = _auth.currentUser?.uid ?? '';
+    final read = item['lastSenderUid'] == currentUid && item['lastMessageRead'] == true;
+    final unread = currentUid.isNotEmpty && item['lastSenderUid'] != currentUid &&
+        item['lastMessageRead'] != true && item['lastMessageAt'] != null;
 
     return InkWell(
       onTap: () => _openChat(uid, item),
@@ -259,7 +262,7 @@ class _ChatListPageState extends State<ChatListPage> {
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
             Row(mainAxisSize: MainAxisSize.min, children: [
               Flexible(child: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.fredoka(fontSize: 17, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface))),
+                style: GoogleFonts.fredoka(fontSize: 17, fontWeight: unread ? FontWeight.w800 : FontWeight.w600, color: Theme.of(context).colorScheme.onSurface))),
               if (item['ownerVerified'] == true) const Padding(
                 padding: EdgeInsets.only(left: 4),
                 child: Icon(Icons.verified_rounded, color: Color(0xFF2196F3), size: 16),
@@ -271,7 +274,7 @@ class _ChatListPageState extends State<ChatListPage> {
               style: GoogleFonts.fredoka(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 4),
             Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: GoogleFonts.fredoka(fontSize: 13.5, color: isRequest ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.onSurfaceVariant)),
+              style: GoogleFonts.fredoka(fontSize: 13.5, fontWeight: unread ? FontWeight.w700 : FontWeight.w400, color: unread || isRequest ? Theme.of(context).colorScheme.onSurface : Theme.of(context).colorScheme.onSurfaceVariant)),
             if (isRequest) Padding(padding: const EdgeInsets.only(top: 3),
               child: Text('Permintaan story • Ikuti kembali untuk membuka chat',
                 maxLines: 1, overflow: TextOverflow.ellipsis,
@@ -283,6 +286,11 @@ class _ChatListPageState extends State<ChatListPage> {
             const SizedBox(height: 8),
             Row(mainAxisSize: MainAxisSize.min, children: [
               if (read) const Icon(Icons.done_all_rounded, size: 17, color: Color(0xFF1687E8)),
+              if (unread) Container(
+                width: 22, height: 22, alignment: Alignment.center,
+                decoration: const BoxDecoration(color: Color(0xFF20A66A), shape: BoxShape.circle),
+                child: const Text('1', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800)),
+              ),
               PopupMenuButton<String>(
                 padding: EdgeInsets.zero, constraints: const BoxConstraints(minWidth: 185),
                 icon: Icon(CupertinoIcons.chevron_right, size: 19, color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -644,6 +652,7 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
         'followingUid': widget.peerUid,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      unawaited(_dispatchSocialNotification(type: 'follow', id: widget.peerUid, itemId: DateTime.now().microsecondsSinceEpoch.toString()));
       if (mounted) {
         setState(() => _followingPeer = true);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -711,6 +720,7 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
         'text': text, 'url': url, 'fileName': fileName, ...extra,
         'createdAt': FieldValue.serverTimestamp(), 'read': false,
       });
+      unawaited(_dispatchSocialNotification(type: 'chat', id: _chatId, itemId: messageRef.id));
       _text.clear();
     } catch (error) {
       if (mounted) {
@@ -1072,6 +1082,102 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
     return Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(gradient: _chatWallpaperGradients[index])));
   }
 
+  Future<void> _openChatImage(String url) async {
+    if (!url.startsWith('https://')) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      fullscreenDialog: true,
+      builder: (viewerContext) => Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          title: const Text('Foto'),
+        ),
+        body: Center(
+          child: InteractiveViewer(
+            minScale: .8,
+            maxScale: 4,
+            child: Image.network(
+              url,
+              fit: BoxFit.contain,
+              width: double.infinity,
+              height: double.infinity,
+              loadingBuilder: (context, child, progress) => progress == null
+                  ? child
+                  : const Center(child: CircularProgressIndicator(color: Colors.white)),
+              errorBuilder: (_, __, ___) => const Center(
+                child: Icon(Icons.broken_image_outlined, color: Colors.white70, size: 48),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+  }
+
+  final Set<String> _downloadingFileUrls = <String>{};
+
+  Future<void> _downloadAndOpenChatFile(String url, String fileName) async {
+    if (!url.startsWith('https://') || _downloadingFileUrls.contains(url)) return;
+    setState(() => _downloadingFileUrls.add(url));
+    try {
+      final response = await http.get(Uri.parse(url))
+          .timeout(const Duration(seconds: 45));
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
+        throw Exception('Server tidak mengirim file yang valid.');
+      }
+      if (response.bodyBytes.length > 30 * 1024 * 1024) {
+        throw Exception('Ukuran file melebihi batas unduhan 30 MB.');
+      }
+
+      final safeName = fileName
+          .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+          .trim();
+      final finalName = safeName.isEmpty ? 'Lampiran' : safeName;
+      final dot = finalName.lastIndexOf('.');
+      final extension = dot > 0 && dot < finalName.length - 1
+          ? finalName.substring(dot + 1).toLowerCase()
+          : '';
+      final baseName = extension.isEmpty
+          ? finalName
+          : finalName.substring(0, dot);
+
+      // file_saver 0.3.1 supports the project's Dart SDK (>=3.3).
+      // Save the downloaded bytes locally, then hand the saved file to Android.
+      final savedPath = await FileSaver.instance.saveFile(
+        name: baseName,
+        bytes: response.bodyBytes,
+        fileExtension: extension,
+        mimeType: MimeType.other,
+      );
+      if (savedPath == null || savedPath.isEmpty) {
+        throw Exception('File tidak berhasil disimpan ke penyimpanan aplikasi.');
+      }
+
+      final result = await OpenFilex.open(savedPath);
+      if (!mounted) return;
+      if (result.type != ResultType.done) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(
+            'File tersimpan di Downloads, tetapi belum ada aplikasi untuk membukanya: ${result.message}',
+          )),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('File berhasil diunduh: $finalName')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unduhan gagal: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _downloadingFileUrls.remove(url));
+    }
+  }
+
   Future<void> _openViewOnceImage(String messageId, String url) async {
     try {
       final ref = _db.collection('chats').doc(_chatId).collection('messages').doc(messageId);
@@ -1224,9 +1330,24 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
         ]);
       } else {
         content = Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          ClipRRect(borderRadius: BorderRadius.circular(10),
-            child: Image.network(url, width: 250, height: 190, fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Padding(padding: EdgeInsets.all(14), child: Icon(Icons.broken_image_outlined)))),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: InkWell(
+              onTap: () => _openChatImage(url),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 250, maxHeight: 380),
+                child: Image.network(
+                  url,
+                  width: 250,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Icon(Icons.broken_image_outlined),
+                  ),
+                ),
+              ),
+            ),
+          ),
           if (text.trim().isNotEmpty) Padding(padding: const EdgeInsets.only(top: 7),
             child: Text(text, style: TextStyle(color: foreground, fontSize: 14, height: 1.35))),
         ]);
@@ -1234,8 +1355,9 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
     } else if (type == 'audio' && url.startsWith('https://')) {
       content = _ChatAudioBubble(url: url, mine: mine);
     } else if (type == 'file' && url.startsWith('https://')) {
+      final downloading = _downloadingFileUrls.contains(url);
       content = InkWell(
-        onTap: () => launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication),
+        onTap: downloading ? null : () => _downloadAndOpenChatFile(url, fileName),
         borderRadius: BorderRadius.circular(9),
         child: Container(
           constraints: const BoxConstraints(maxWidth: 230),
@@ -1249,7 +1371,13 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
             const SizedBox(width: 7),
             Flexible(child: Text(fileName, maxLines: 2, overflow: TextOverflow.ellipsis,
               style: TextStyle(color: foreground, fontSize: 14, fontWeight: FontWeight.w600))),
-            const SizedBox(width: 4), Icon(Icons.open_in_new, size: 13, color: foreground.withValues(alpha: .7)),
+            const SizedBox(width: 4),
+            if (downloading)
+              SizedBox(width: 14, height: 14, child: CircularProgressIndicator(
+                strokeWidth: 1.8, color: foreground,
+              ))
+            else
+              Icon(Icons.download_rounded, size: 16, color: foreground.withValues(alpha: .8)),
           ]),
         ),
       );

@@ -31,13 +31,118 @@ async function deleteDoc(project,token,col,id){const r=await fetch(docPath(proje
 async function verifyUser(request,env,project,access){const bearer=request.headers.get("authorization")||"",idToken=bearer.startsWith("Bearer ")?bearer.slice(7):"";if(!idToken)throw Object.assign(Error("Login diperlukan."),{status:401});const url="https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="+encodeURIComponent(env.FIREBASE_WEB_API_KEY||"");const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken})}),d=await r.json();if(!r.ok||!d.users?.[0])throw Object.assign(Error("Sesi Firebase tidak valid."),{status:401});return{uid:d.users[0].localId,email:d.users[0].email||""}}
 async function getNestedDoc(project,token,path){const r=await fetch(API+"/projects/"+encodeURIComponent(project)+"/databases/(default)/documents/"+path,{headers:{authorization:"Bearer "+token}});if(r.status===404)return null;const d=await r.json();if(!r.ok)throw Error("Firestore read gagal.");return fromFields(d.fields)}
 async function sendSocialOneSignal(env,recipient,title,body,data){if(!env.ONESIGNAL_APP_ID||!env.ONESIGNAL_REST_API_KEY)throw Object.assign(Error("OneSignal belum dikonfigurasi."),{status:503});const r=await fetch("https://api.onesignal.com/notifications",{method:"POST",headers:{"Authorization":"Key "+env.ONESIGNAL_REST_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({app_id:env.ONESIGNAL_APP_ID,include_aliases:{external_id:[recipient]},target_channel:"push",headings:{en:title,id:title},contents:{en:body,id:body},data})});const d=await r.json().catch(()=>({}));if(!r.ok)throw Object.assign(Error("OneSignal gagal mengirim: "+String(d.errors||d.message||r.status).slice(0,250)),{status:502});return d}
-async function handleSocialNotification(request,env,project,access){const actor=await verifyUser(request,env,project,access),b=await request.json(),type=String(b.type||""),id=String(b.id||"");if(!id||id.length>180)throw Object.assign(Error("ID aktivitas tidak valid."),{status:400});let recipient="",title="",body="",data={type:"social",event:type,id};if(type==="like"){const post=await getDoc(project,access,"activity_posts",id),like=await getNestedDoc(project,access,"activity_posts/"+encodeURIComponent(id)+"/likes/"+encodeURIComponent(actor.uid));if(!post||!like||like.uid!==actor.uid)throw Object.assign(Error("Aktivitas suka tidak valid."),{status:404});recipient=String(post.ownerUid||post.uid||"");title="Postingan disukai";body="Seseorang menyukai postinganmu."}else if(type==="follow"){const follow=await getDoc(project,access,"follows",actor.uid+"_"+id);if(!follow||follow.followerUid!==actor.uid||follow.followingUid!==id)throw Object.assign(Error("Aktivitas follow tidak valid."),{status:404});recipient=id;title="Pengikut baru";body="Seseorang mulai mengikutimu."}else if(type==="story_reply"||type==="story_reaction"){const story=await getDoc(project,access,"stories",id),sub=type==="story_reply"?"replies":"reactions",rows=await query(project,access,sub,"uid",actor.uid,200);const valid=rows.some(x=>x.id&&x.data.uid===actor.uid);if(!story||!valid)throw Object.assign(Error("Aktivitas story tidak valid."),{status:404});recipient=String(story.ownerUid||story.uid||"");title=type==="story_reply"?"Balasan story":"Reaksi story";body=type==="story_reply"?"Seseorang membalas story-mu.":"Seseorang bereaksi pada story-mu."}else{throw Object.assign(Error("Jenis notifikasi belum didukung."),{status:400})}if(!recipient||recipient===actor.uid)return json({ok:true,skipped:true});const eventKey=type+"_"+id+"_"+actor.uid,existing=await getDoc(project,access,"notification_dispatches",eventKey);if(existing)return json({ok:true,duplicate:true});const result=await sendSocialOneSignal(env,recipient,title,body,{...data,actorUid:actor.uid,recipientUid:recipient});await writeDoc(project,access,"notification_dispatches",eventKey,{type,actorUid:actor.uid,recipientUid:recipient,createdAt:new Date().toISOString()});return json({ok:true,id:result.id||null})}
+async function handleSocialNotification(request,env,project,access){
+  const actor=await verifyUser(request,env,project,access);
+  const b=await request.json();
+  const type=String(b.type||"");
+  const id=String(b.id||"");
+  const itemId=String(b.itemId||"");
+  if(!id||id.length>180||itemId.length>240)throw Object.assign(Error("ID aktivitas tidak valid."),{status:400});
+
+  const privateProfile=await getDoc(project,access,"profiles",actor.uid)||{};
+  const publicProfile=await getDoc(project,access,"public_profiles",actor.uid)||{};
+  const actorName=String(privateProfile.name||publicProfile.name||privateProfile.displayName||publicProfile.displayName||privateProfile.username||publicProfile.username||actor.email.split("@")[0]||"Pengguna Kalbar Kite").slice(0,80);
+  const avatarUrl=String(privateProfile.avatarUrl||privateProfile.photoURL||privateProfile.photoUrl||publicProfile.avatarUrl||publicProfile.photoURL||publicProfile.photoUrl||"");
+  let recipient="",title=actorName,body="",routeType="activity",targetId=id;
+  const data={type:"social",event:type,id,actorUid:actor.uid,actorName,avatarUrl};
+
+  if(type==="like"){
+    const post=await getDoc(project,access,"activity_posts",id);
+    const like=await getNestedDoc(project,access,"activity_posts/"+encodeURIComponent(id)+"/likes/"+encodeURIComponent(actor.uid));
+    if(!post||!like||like.uid!==actor.uid)throw Object.assign(Error("Aktivitas suka tidak valid."),{status:404});
+    recipient=String(post.ownerUid||post.uid||"");
+    body="Menyukai postinganmu.";
+    routeType="profile";
+    targetId=actor.uid;
+    data.postId=id;
+  }else if(type==="follow"){
+    const follow=await getDoc(project,access,"follows",actor.uid+"_"+id);
+    if(!follow||follow.followerUid!==actor.uid||follow.followingUid!==id)throw Object.assign(Error("Aktivitas follow tidak valid."),{status:404});
+    recipient=id;
+    body="Mulai mengikutimu.";
+    routeType="profile";
+    targetId=actor.uid;
+  }else if(type==="comment"){
+    const post=await getDoc(project,access,"activity_posts",id);
+    let comments=[];
+    if(Array.isArray(post?.comments))comments=post.comments;
+    else if(typeof post?.comments==="string"){try{comments=JSON.parse(post.comments)}catch(_){comments=[]}}
+    const comment=comments.find(x=>x&&x.uid===actor.uid&&String(x.date||"")===itemId);
+    if(!post||!comment||!itemId)throw Object.assign(Error("Aktivitas komentar tidak valid."),{status:404});
+    recipient=String(post.ownerUid||post.uid||"");
+    body="Mengomentari: "+String(comment.body||"postinganmu").slice(0,140);
+    routeType="profile";
+    targetId=actor.uid;
+    data.postId=id;
+  }else if(type==="chat"){
+    if(!itemId)throw Object.assign(Error("ID pesan tidak valid."),{status:400});
+    const chat=await getDoc(project,access,"chats",id);
+    const message=await getNestedDoc(project,access,"chats/"+encodeURIComponent(id)+"/messages/"+encodeURIComponent(itemId));
+    const participants=Array.isArray(chat?.participants)?chat.participants:[];
+    if(!chat||!message||message.senderUid!==actor.uid||!participants.includes(actor.uid)||!message.receiverUid||!participants.includes(message.receiverUid))throw Object.assign(Error("Aktivitas chat tidak valid."),{status:404});
+    recipient=String(message.receiverUid);
+    body=String(message.text||"").trim().slice(0,160)||(message.type==="image"?"Mengirim foto.":message.type==="audio"?"Mengirim pesan suara.":message.type==="location"?"Mengirim lokasi.":"Mengirim lampiran.");
+    routeType="chat";
+    targetId=id;
+    data.chatId=id;
+    data.messageId=itemId;
+    data.messageType=String(message.type||"text");
+    data.peerUid=actor.uid;
+    if(message.type==="image"&&typeof message.url==="string"&&/^https:\/\//i.test(message.url))data.mediaUrl=message.url;
+  }else if(type==="story_reply"||type==="story_reaction"){
+    if(!itemId)throw Object.assign(Error("ID interaksi story tidak valid."),{status:400});
+    const story=await getDoc(project,access,"stories",id);
+    const sub=type==="story_reply"?"replies":"reactions";
+    const interaction=await getNestedDoc(project,access,"stories/"+encodeURIComponent(id)+"/"+sub+"/"+encodeURIComponent(itemId));
+    if(!story||!interaction||interaction.uid!==actor.uid)throw Object.assign(Error("Aktivitas story tidak valid."),{status:404});
+    recipient=String(story.ownerUid||story.uid||"");
+    body=type==="story_reply"?"Membalas story-mu: "+String(interaction.text||"").slice(0,120):"Bereaksi pada story-mu "+String(interaction.emoji||"❤️");
+    routeType="story";
+    targetId=id;
+  }else{
+    throw Object.assign(Error("Jenis notifikasi belum didukung."),{status:400});
+  }
+
+  if(!recipient||recipient===actor.uid)return json({ok:true,skipped:true});
+  data.routeType=routeType;
+  data.targetId=targetId;
+  data.routeValue=targetId;
+  data.title=title;
+  data.body=body;
+  data.notificationId=[type,id,actor.uid,itemId||"default"].join("_").replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,180);
+  const eventKey=[type,id,actor.uid,itemId||"default"].join("_").replace(/[^a-zA-Z0-9_-]/g,"_").slice(0,240);
+  const existing=await getDoc(project,access,"notification_dispatches",eventKey);
+  if(existing)return json({ok:true,duplicate:true});
+
+  const notification={
+    receiverUid:recipient,
+    actorUid:actor.uid,
+    actorName:actorName,
+    avatarUrl:avatarUrl,
+    event:type,
+    title:title,
+    body:body,
+    routeType:routeType,
+    targetId:targetId,
+    routeValue:targetId,
+    chatId:type==="chat"?id:"",
+    peerUid:type==="chat"?actor.uid:"",
+    messageId:type==="chat"?itemId:"",
+    postId:type==="like"||type==="comment"?id:"",
+    createdAt:new Date().toISOString(),
+    read:false
+  };
+  await writeDoc(project,access,"user_notifications",eventKey,notification);
+  const result=await sendSocialOneSignal(env,recipient,title,body,data);
+  await writeDoc(project,access,"notification_dispatches",eventKey,{type,actorUid:actor.uid,recipientUid:recipient,createdAt:new Date().toISOString()});
+  return json({ok:true,id:result.id||null});
+}
 async function verifyAdmin(request,env,project,access){const bearer=request.headers.get("authorization")||"",idToken=bearer.startsWith("Bearer ")?bearer.slice(7):"";if(!idToken)throw Object.assign(Error("Login diperlukan."),{status:401});const url="https://identitytoolkit.googleapis.com/v1/accounts:lookup?key="+encodeURIComponent(env.FIREBASE_WEB_API_KEY||"AIzaSyCTPL-TwkbCj2sHDT-6qPz3_2xa6aj7DQw");const r=await fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken})}),d=await r.json();if(!r.ok||!d.users?.[0])throw Object.assign(Error("Sesi Firebase tidak valid. Silakan login ulang."),{status:401});const u=d.users[0],profile=await getDoc(project,access,"profiles",u.localId);if(!(profile?.role==="admin"||profile?.isAdmin===true))throw Object.assign(Error("Akses ditolak. Akun ini bukan admin."),{status:403});return{uid:u.localId,email:u.email||profile.email||"",profile}}
 async function audit(project,token,actor,action,target,details={}){try{await writeDoc(project,token,"admin_audit_logs",null,{actorUid:actor.uid,actorEmail:actor.email,action,target,details,createdAt:new Date().toISOString()})}catch(e){console.error("Audit write failed",e.message)}}
 async function sendFcmNotification(project,sa,rows,title,body,imageUrl=""){
   const token=await getAccessToken(sa,FCM_SCOPE),endpoint="https://fcm.googleapis.com/v1/projects/"+encodeURIComponent(project)+"/messages:send";
   let sent=0,failed=0,invalidTokensRemoved=0;const errors=[];
-  for(let i=0;i<rows.length;i+=20){const batch=rows.slice(i,i+20);await Promise.all(batch.map(async row=>{try{const message={token:row.data.token,notification:{title,body},data:{type:"admin_announcement",title,body,notificationId:"admin_"+Date.now(),...(imageUrl?{imageUrl}:{}),},android:{priority:"HIGH",notification:{channel_id:"kalbar_kite_updates",sound:"default",...(imageUrl?{image:imageUrl}:{})}},apns:{payload:{aps:{sound:"default"}},...(imageUrl?{fcm_options:{image:imageUrl}}:{})}};const response=await fetch(endpoint,{method:"POST",headers:{authorization:"Bearer "+token,"content-type":"application/json"},body:JSON.stringify({message})});const result=await response.json().catch(()=>({}));if(!response.ok){failed++;const errorStatus=String(result.error?.status||"");const errorMessage=String(result.error?.message||"");const details=Array.isArray(result.error?.details)?result.error.details:[];const unregistered=errorStatus==="NOT_FOUND"&&(/NotRegistered|UNREGISTERED/i.test(errorMessage)||details.some(item=>String(item.errorCode||"").toUpperCase()==="UNREGISTERED"));if(unregistered){try{await deleteDoc(project,await getAccessToken(sa), "notification_tokens",row.id);invalidTokensRemoved++}catch(cleanupError){console.error("Gagal membersihkan token FCM",cleanupError.message)}}if(errors.length<5)errors.push([errorStatus||response.status,errorMessage].filter(Boolean).join(": "));return}sent++;}catch(error){failed++;if(errors.length<5)errors.push(error.message)}}));}
+  for(let i=0;i<rows.length;i+=20){const batch=rows.slice(i,i+20);await Promise.all(batch.map(async row=>{try{const message={token:row.data.token,notification:{title,body},data:{type:"admin_announcement",title,body,notificationId:"admin_"+Date.now(),...(imageUrl?{imageUrl}:{}),},android:{priority:"HIGH",notification:{channel_id:"kalbar_kite_updates",...(imageUrl?{image:imageUrl}:{})}},apns:{payload:{aps:{}},...(imageUrl?{fcm_options:{image:imageUrl}}:{})}};const response=await fetch(endpoint,{method:"POST",headers:{authorization:"Bearer "+token,"content-type":"application/json"},body:JSON.stringify({message})});const result=await response.json().catch(()=>({}));if(!response.ok){failed++;const errorStatus=String(result.error?.status||"");const errorMessage=String(result.error?.message||"");const details=Array.isArray(result.error?.details)?result.error.details:[];const unregistered=errorStatus==="NOT_FOUND"&&(/NotRegistered|UNREGISTERED/i.test(errorMessage)||details.some(item=>String(item.errorCode||"").toUpperCase()==="UNREGISTERED"));if(unregistered){try{await deleteDoc(project,await getAccessToken(sa), "notification_tokens",row.id);invalidTokensRemoved++}catch(cleanupError){console.error("Gagal membersihkan token FCM",cleanupError.message)}}if(errors.length<5)errors.push([errorStatus||response.status,errorMessage].filter(Boolean).join(": "));return}sent++;}catch(error){failed++;if(errors.length<5)errors.push(error.message)}}));}
   return{sent,failed,errors,invalidTokensRemoved};
 }
 

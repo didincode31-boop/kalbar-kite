@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/gestures.dart';
@@ -29,6 +30,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:file_saver/file_saver.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:record/record.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -263,7 +266,6 @@ Future<Map<String, String>> _loadAvatarsForUsers(Iterable<String> userIds) async
 // Satu pemutar global agar audio Al-Qur'an tetap berjalan saat halaman surah ditutup.
 final AudioPlayer quranAudioPlayer = AudioPlayer();
 // Pemutar terpisah untuk audio intro pada splash setelah login.
-final AudioPlayer splashAudioPlayer = AudioPlayer();
 
 String? currentQuranAudioUrl;
 
@@ -283,31 +285,206 @@ final FlutterLocalNotificationsPlugin localNotifications = FlutterLocalNotificat
 bool _notificationServiceReady = false;
 bool _notificationTokenRefreshListenerReady = false;
 
+Future<String?> _cacheNotificationAvatar(String rawUrl, String actorUid) async {
+  final url=rawUrl.trim();
+  if(!url.startsWith('https://'))return null;
+  try{
+    final response=await http.get(Uri.parse(url)).timeout(const Duration(seconds:5));
+    if(response.statusCode!=200||response.bodyBytes.isEmpty||response.bodyBytes.length>2*1024*1024)return null;
+    final directory=await getTemporaryDirectory();
+    final safeId=actorUid.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'),'_');
+    final file=File('${directory.path}/kalbar-avatar-${safeId.isEmpty?'sender':safeId}.img');
+    await file.writeAsBytes(response.bodyBytes,flush:true);
+    return file.path;
+  }catch(error){debugPrint('Avatar notifikasi gagal dimuat: $error');return null;}
+}
+
+Future<String?> _cacheNotificationMedia(String rawUrl, String actorUid) async {
+  final url = rawUrl.trim();
+  if (!url.startsWith('https://')) return null;
+  try {
+    final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 7));
+    if (response.statusCode != 200 || response.bodyBytes.isEmpty ||
+        response.bodyBytes.length > 5 * 1024 * 1024) return null;
+    final directory = await getTemporaryDirectory();
+    final safeId = actorUid.replaceAll(RegExp(r'[^a-zA-Z0-9_-]'), '_');
+    final file = File('${directory.path}/kalbar-chat-preview-${safeId.isEmpty ? 'sender' : safeId}.img');
+    await file.writeAsBytes(response.bodyBytes, flush: true);
+    return file.path;
+  } catch (error) {
+    debugPrint('Preview foto notifikasi gagal dimuat: $error');
+    return null;
+  }
+}
+
+Future<NotificationDetails> _socialNotificationDetails(Map<String,dynamic> data) async {
+  final event=(data['event']??'').toString();
+  final isChat=event=='chat';
+  final actorName=(data['actorName']??'Pengguna Kalbar Kite').toString();
+  final body=(data['body']??'Ada aktivitas baru untukmu.').toString();
+  final avatarPath=await _cacheNotificationAvatar((data['avatarUrl']??'').toString(),(data['actorUid']??'').toString());
+  final mediaUrl=(data['mediaUrl']??'').toString();
+  final mediaPath=isChat&&data['messageType']=='image'
+      ? await _cacheNotificationMedia(mediaUrl,(data['actorUid']??'').toString())
+      : null;
+  final actions=<AndroidNotificationAction>[
+    if(isChat) AndroidNotificationAction(
+      'reply','Balas',
+      inputs: <AndroidNotificationActionInput>[AndroidNotificationActionInput(label:'Tulis balasan...')],
+      showsUserInterface:false,cancelNotification:false,allowGeneratedReplies:true,
+    ),
+    if(isChat) const AndroidNotificationAction('mark_read','Tandai dibaca',showsUserInterface:false,cancelNotification:true),
+  ];
+  final eventAt=DateTime.tryParse((data['eventAt']??'').toString())??DateTime.now();
+  return NotificationDetails(
+    android:AndroidNotificationDetails(
+      'kalbar_kite_social','Aktivitas Kalbar Kite',
+      channelDescription:'Chat, pengikut, suka, komentar, dan story',
+      icon:'ic_launcher',
+      importance:Importance.max,priority:Priority.high,
+      category:isChat?AndroidNotificationCategory.message:AndroidNotificationCategory.social,
+      visibility:NotificationVisibility.private,
+      showWhen:true,when:eventAt.millisecondsSinceEpoch,
+      largeIcon:avatarPath==null?null:FilePathAndroidBitmap(avatarPath),
+      styleInformation:mediaPath != null
+          ? BigPictureStyleInformation(
+              FilePathAndroidBitmap(mediaPath),
+              largeIcon: avatarPath == null ? null : FilePathAndroidBitmap(avatarPath),
+              contentTitle: actorName,
+              summaryText: body,
+              hideExpandedLargeIcon: true,
+            )
+          : BigTextStyleInformation(
+              body,contentTitle:actorName,summaryText:'Kalbar Kite',
+            ),
+      actions:actions,
+      groupKey:isChat?'kalbar_kite_chat_${data['chatId']??'inbox'}':'kalbar_kite_social',
+      setAsGroupSummary:false,autoCancel:true,onlyAlertOnce:false,
+    ),
+    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:false),
+  );
+}
+
+Future<void> _sendNotificationReply(Map<String,dynamic> data,String rawReply) async {
+  final reply=rawReply.trim();
+  if(reply.isEmpty)return;
+  final user=FirebaseAuth.instance.currentUser;
+  if(user==null)throw Exception('Sesi login tidak tersedia. Buka Kalbar Kite lalu coba balas lagi.');
+  final chatId=(data['chatId']??'').toString();
+  final peerUid=(data['peerUid']??data['actorUid']??'').toString();
+  if(chatId.isEmpty||peerUid.isEmpty||peerUid==user.uid)throw Exception('Tujuan chat notifikasi tidak valid.');
+  final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
+  final chat=await chatRef.get();
+  final participants=List<String>.from(chat.data()?['participants']??const <String>[]);
+  if(!chat.exists||!participants.contains(user.uid)||!participants.contains(peerUid))throw Exception('Kamu bukan peserta percakapan ini.');
+  final messageRef=chatRef.collection('messages').doc();
+  await messageRef.set({
+    'senderUid':user.uid,'receiverUid':peerUid,'type':'text','text':reply,
+    'url':'','fileName':'','createdAt':FieldValue.serverTimestamp(),'read':false,
+  });
+  await chatRef.set({
+    'lastMessage':reply,'lastSenderUid':user.uid,'lastMessageRead':false,
+    'lastMessageAt':FieldValue.serverTimestamp(),
+  },SetOptions(merge:true));
+  try{
+    final token=await user.getIdToken();
+    if(token!=null&&token.isNotEmpty){
+      await http.post(Uri.parse('https://kalbarkite.dcxcomunity.my.id/api/social-notification'),
+        headers:{'Authorization':'Bearer $token','Content-Type':'application/json'},
+        body:jsonEncode({'type':'chat','id':chatId,'itemId':messageRef.id}),
+      ).timeout(const Duration(seconds:8));
+    }
+  }catch(error){debugPrint('Push balasan dari notifikasi gagal: $error');}
+}
+
+Future<void> _markNotificationChatRead(Map<String,dynamic> data) async {
+  final user=FirebaseAuth.instance.currentUser;
+  if(user==null)return;
+  final chatId=(data['chatId']??'').toString();
+  if(chatId.isEmpty)return;
+  final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
+  final page=await chatRef.collection('messages').where('receiverUid',isEqualTo:user.uid).where('read',isEqualTo:false).limit(400).get();
+  if(page.docs.isNotEmpty){
+    final batch=FirebaseFirestore.instance.batch();
+    for(final doc in page.docs){batch.update(doc.reference,{'read':true});}
+    await batch.commit();
+  }
+  await chatRef.set({'lastMessageRead':true},SetOptions(merge:true));
+}
+
+void _handleNotificationResponse(NotificationResponse response) {
+  final payload=response.payload;
+  if(payload==null||payload.isEmpty)return;
+  try{
+    final data=Map<String,dynamic>.from(jsonDecode(payload) as Map);
+    if(response.actionId=='reply'){
+      unawaited(_sendNotificationReply(data,response.input??'').catchError((error){debugPrint('Balasan notifikasi gagal: $error');}));
+    }else if(response.actionId=='mark_read'){
+      unawaited(_markNotificationChatRead(data).catchError((error){debugPrint('Tandai dibaca gagal: $error');}));
+    }else{
+      _handleNotificationData(data);
+    }
+  }catch(error){debugPrint('Aksi notifikasi tidak valid: $error');}
+}
+
+@pragma('vm:entry-point')
+void _notificationActionBackground(NotificationResponse response) {
+  unawaited(_processNotificationActionBackground(response));
+}
+
+@pragma('vm:entry-point')
+Future<void> _processNotificationActionBackground(NotificationResponse response) async {
+  try{
+    await Firebase.initializeApp(options:_firebaseOptions);
+    final payload=response.payload;
+    if(payload==null||payload.isEmpty)return;
+    final data=Map<String,dynamic>.from(jsonDecode(payload) as Map);
+    if(response.actionId=='reply'){
+      await _sendNotificationReply(data,response.input??'');
+    }else if(response.actionId=='mark_read'){
+      await _markNotificationChatRead(data);
+    }
+  }catch(error,stackTrace){
+    debugPrint('Aksi notifikasi latar belakang gagal: $error');
+    debugPrintStack(stackTrace:stackTrace);
+  }
+}
+
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: _firebaseOptions);
-  // Notification payloads are normally displayed by the OS in background.
-  // Data-only payloads need a local notification because they have no OS alert.
-  if (message.notification == null) {
-    final data = message.data;
-    final title = (data['title'] ?? data['senderName'] ?? 'Kalbar Kite').toString();
-    final body = (data['body'] ?? 'Ada aktivitas baru untukmu.').toString();
-    final eventAt = DateTime.tryParse((data['eventAt'] ?? '').toString()) ?? DateTime.now();
-    final notificationId = (data['notificationId'] ?? message.messageId ?? '').toString();
+  await Firebase.initializeApp(options:_firebaseOptions);
+  await localNotifications.initialize(
+    const InitializationSettings(
+      android:AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS:DarwinInitializationSettings(),
+    ),
+    onDidReceiveBackgroundNotificationResponse:_notificationActionBackground,
+  );
+  final androidPlugin=localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  await androidPlugin?.createNotificationChannel(const AndroidNotificationChannel(
+    'kalbar_kite_social','Aktivitas Kalbar Kite',
+    description:'Chat, pengikut, suka, komentar, dan story',
+    importance:Importance.max,playSound:false,
+  ));
+  final data=message.data;
+  if(data['type']=='social'){
+    final title=(data['actorName']??'Kalbar Kite').toString();
+    final body=(data['body']??'Ada aktivitas baru untukmu.').toString();
+    final rawId=(data['notificationId']??message.messageId??'').toString();
+    final id=rawId.isEmpty?DateTime.now().millisecondsSinceEpoch:rawId.hashCode&0x7fffffff;
+    await localNotifications.show(id,title,body,await _socialNotificationDetails(data),payload:jsonEncode(data));
+  }else if(message.notification==null){
+    final title=(data['title']??'Kalbar Kite').toString();
+    final body=(data['body']??'Ada informasi baru untukmu.').toString();
     await localNotifications.show(
-      notificationId.isNotEmpty ? notificationId.hashCode : DateTime.now().millisecondsSinceEpoch.remainder(1 << 31),
-      title,
-      body,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          'kalbar_kite_social', 'Aktivitas sosial',
-          channelDescription: 'Chat, pengikut, suka, komentar, dan story',
-          importance: Importance.high, priority: Priority.high, playSound: true,
-          showWhen: true, when: eventAt.millisecondsSinceEpoch,
-        ),
-        iOS: const DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),
-      ),
-      payload: jsonEncode(data),
+      (data['notificationId']??message.messageId??DateTime.now().millisecondsSinceEpoch.toString()).hashCode&0x7fffffff,
+      title,body,
+      const NotificationDetails(android:AndroidNotificationDetails(
+        'kalbar_kite_updates','Notifikasi Kalbar Kite',
+        channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
+        icon:'ic_launcher',importance:Importance.high,priority:Priority.high,playSound:false,
+      )),
+      payload:jsonEncode(data),
     );
   }
 }
@@ -315,7 +492,14 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 Future<void> _initializeNotifications(User user) async {
   try {
     // Kaitkan subscription OneSignal dengan UID Firebase agar notifikasi bisa ditargetkan per akun.
-    await OneSignal.login(user.uid);
+    try {
+      await OneSignal.login(user.uid);
+    } catch (error, stackTrace) {
+      // OneSignal is optional here; FCM is the active delivery path.
+      // A OneSignal login error must never disable Firebase notification setup.
+      debugPrint('OneSignal login dilewati, FCM tetap dilanjutkan: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
     // Pasang handler UI hanya sekali, tetapi sinkronkan token pada setiap login.
     if (!_notificationServiceReady) {
       FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -323,20 +507,25 @@ Future<void> _initializeNotifications(User user) async {
       const iosSettings = DarwinInitializationSettings();
       await localNotifications.initialize(
         const InitializationSettings(android: androidSettings, iOS: iosSettings),
-        onDidReceiveNotificationResponse: (response) => _openNotificationData(response.payload),
+        onDidReceiveNotificationResponse: _handleNotificationResponse,
+        onDidReceiveBackgroundNotificationResponse: _notificationActionBackground,
       );
+      final launchDetails = await localNotifications.getNotificationAppLaunchDetails();
+      if (launchDetails?.didNotificationLaunchApp == true && launchDetails?.notificationResponse != null) {
+        _handleNotificationResponse(launchDetails!.notificationResponse!);
+      }
       const channel = AndroidNotificationChannel(
         'kalbar_kite_updates', 'Notifikasi Kalbar Kite',
         description: 'Pengumuman, berita, dan informasi Kalbar Kite',
         importance: Importance.high,
-        playSound: true,
+        playSound: false,
       );
       final androidPlugin = localNotifications.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
       await androidPlugin?.createNotificationChannel(channel);
       const socialChannel = AndroidNotificationChannel(
         'kalbar_kite_social', 'Aktivitas sosial',
         description: 'Chat, pengikut, suka, komentar, dan story',
-        importance: Importance.high, playSound: true,
+        importance: Importance.high, playSound: false,
       );
       await androidPlugin?.createNotificationChannel(socialChannel);
       FirebaseMessaging.onMessage.listen(_showForegroundNotification);
@@ -405,37 +594,96 @@ Future<void> _saveNotificationToken(String uid, String token) async {
   }
 }
 
-Future<void> _showForegroundNotification(RemoteMessage message) async {
-  // Render text immediately. Downloading optional avatars/images first can
-  // hold a foreground notification for many seconds on a slow connection.
-  final data = message.data;
-  final title = message.notification?.title ?? (data['title'] ?? 'Kalbar Kite').toString();
-  final body = message.notification?.body ?? (data['body'] ?? 'Ada informasi baru untukmu.').toString();
-  final eventAt = DateTime.tryParse((data['eventAt'] ?? '').toString()) ?? DateTime.now();
-  final notificationId = (data['notificationId'] ?? message.messageId ?? '').toString();
-  final isChatNotification = const {'chat', 'story_reply', 'story_reaction'}.contains(data['type']);
+Future<void> _dispatchSocialNotification({required String type, required String id, String itemId = ''}) async {
+  final user = _auth.currentUser;
+  if (user == null || id.trim().isEmpty) return;
+  try {
+    final idToken = await user.getIdToken();
+    if (idToken == null || idToken.isEmpty) return;
+    final response = await http.post(
+      Uri.parse('https://kalbarkite.dcxcomunity.my.id/api/social-notification'),
+      headers: {
+        'Authorization': 'Bearer $idToken',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: jsonEncode({'type': type, 'id': id, 'itemId': itemId}),
+    ).timeout(const Duration(seconds: 12));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      debugPrint('Notifikasi sosial $type gagal (HTTP ${response.statusCode}): ${response.body}');
+    }
+  } catch (error, stackTrace) {
+    // A push failure must never undo a like, follow, comment, message, or story action.
+    debugPrint('Dispatch notifikasi sosial $type gagal: $error');
+    debugPrintStack(stackTrace: stackTrace);
+  }
+}
 
-  await localNotifications.show(
-    notificationId.isNotEmpty ? notificationId.hashCode : message.hashCode,
-    title,
-    body,
-    NotificationDetails(
-      android: AndroidNotificationDetails(
-        isChatNotification ? 'kalbar_kite_social' : 'kalbar_kite_updates',
-        isChatNotification ? 'Pesan chat' : 'Notifikasi Kalbar Kite',
-        channelDescription: isChatNotification ? 'Pesan baru di Kalbar Kite' : 'Pengumuman, berita, dan informasi Kalbar Kite',
-        importance: Importance.high, priority: Priority.high, playSound: true,
-        showWhen: true, when: eventAt.millisecondsSinceEpoch,
-      ),
-      iOS: const DarwinNotificationDetails(presentAlert: true, presentBadge: true, presentSound: true),
+Future<void> _showForegroundNotification(RemoteMessage message) async {
+  final data=message.data;
+  final isSocial=data['type']=='social';
+  final title=isSocial?(data['actorName']??'Kalbar Kite').toString()
+      :(message.notification?.title??(data['title']??'Kalbar Kite').toString());
+  final body=isSocial?(data['body']??'Ada aktivitas baru untukmu.').toString()
+      :(message.notification?.body??(data['body']??'Ada informasi baru untukmu.').toString());
+  final rawId=(data['notificationId']??message.messageId??'').toString();
+  final id=rawId.isEmpty?message.hashCode:rawId.hashCode&0x7fffffff;
+  final details=isSocial?await _socialNotificationDetails(data):NotificationDetails(
+    android:AndroidNotificationDetails(
+      'kalbar_kite_updates','Notifikasi Kalbar Kite',
+      channelDescription:'Pengumuman, berita, dan informasi Kalbar Kite',
+      icon:'ic_launcher',importance:Importance.high,priority:Priority.high,playSound:false,
+      showWhen:true,when:DateTime.now().millisecondsSinceEpoch,
     ),
-    payload: jsonEncode(data),
+    iOS:const DarwinNotificationDetails(presentAlert:true,presentBadge:true,presentSound:false),
   );
+  await localNotifications.show(id,title,body,details,payload:jsonEncode(data));
 }
 
 void _openNotificationData(String? payload) {
   if (payload == null || payload.isEmpty) return;
   try { _handleNotificationData(Map<String, dynamic>.from(jsonDecode(payload) as Map)); } catch (_) {}
+}
+
+Future<void> _openStoryNotification(Map<String,dynamic> data) async {
+  try {
+    await Store.loadActivityFeed();
+    final storyId=(data['targetId']??data['routeValue']??'').toString();
+    Map<String,String>? target;
+    for(final item in Store.stories){if((item['id']??'')==storyId){target=item;break;}}
+    if(target==null){
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
+      return;
+    }
+    final owner=(target['uid']??'').toString();
+    final ownerStories=Store.stories.where((item)=>(item['uid']??'')==owner).toList();
+    final targetIndex=ownerStories.indexWhere((item)=>(item['id']??'')==storyId);
+    if(targetIndex>0){
+      final ordered=<Map<String,String>>[...ownerStories.skip(targetIndex),...ownerStories.take(targetIndex)];
+      ownerStories
+        ..clear()
+        ..addAll(ordered);
+    }
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => StoryViewerPage(stories:ownerStories)));
+  }catch(error){
+    debugPrint('Story dari notifikasi tidak dapat dibuka: $error');
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
+  }
+}
+
+Future<void> _openActivityNotification(Map<String,dynamic> data) async {
+  try {
+    await Store.loadActivityFeed();
+    final postId=(data['targetId']??data['routeValue']??'').toString();
+    if(data['event']=='comment'&&postId.isNotEmpty){
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ActivityCommentsPage(postId:postId)));
+    }else{
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ActivityPage(focusPostId:postId)));
+    }
+  }catch(error){
+    debugPrint('Target aktivitas tidak dapat dibuka: $error');
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const ActivityPage()));
+  }
 }
 
 void _handleNotificationData(Map<String, dynamic> data) {
@@ -451,10 +699,21 @@ void _handleNotificationData(Map<String, dynamic> data) {
   } else if (routeType == 'dashboard_info') {
     appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   } else if (routeType == 'chat') {
-    final peerUid = (data['peerUid'] ?? routeValue).toString();
+    final peerUid = (data['peerUid'] ?? data['actorUid'] ?? routeValue).toString();
     if (peerUid.isNotEmpty && peerUid != _auth.currentUser?.uid) {
       appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => ChatThreadPage(peerUid: peerUid)));
     }
+  } else if (routeType == 'profile') {
+    final uid=(data['targetId']??routeValue).toString();
+    if(uid.isNotEmpty&&uid!=_auth.currentUser?.uid){
+      appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => PublicProfilePage(uid:uid)));
+    }
+  } else if (routeType == 'activity') {
+    unawaited(_openActivityNotification(data));
+  } else if (routeType == 'story') {
+    unawaited(_openStoryNotification(data));
+  } else if (routeType == 'home') {
+    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   } else if (routeType == 'dashboard') {
     appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => const HomePage()));
   }
@@ -568,8 +827,15 @@ Future<void> main() async {
   // Muat identitas publik sekali saat aplikasi dibuka, termasuk sebelum login.
   // Future yang sama dipakai splash pasca-login agar tidak mengunduh konfigurasi dua kali.
   unawaited(Store.loadVisualConfigWithRetry());
-  _auth.authStateChanges().listen((user) { if (user != null) unawaited(_initializeNotifications(user)); });
-  // Sinkronisasi berjalan setelah UI tampil agar splash screen tidak tertahan jaringan.
+  _auth.authStateChanges().listen((user) {
+    if (user != null) {
+      Store.currentEmail = user.email ?? '';
+      Store.currentUid = user.uid;
+      unawaited(_initializeNotifications(user));
+      unawaited(Store.loadCloudData().catchError((_) {}));
+    }
+  });
+  // Auth listener di atas memulai sinkronisasi satu kali setelah UI tampil.
   if (_auth.currentUser != null) {
     Store.currentEmail = _auth.currentUser!.email ?? '';
     Store.currentUid = _auth.currentUser!.uid;
@@ -700,6 +966,15 @@ class Store {
     }
     if (_auth.currentUser != null) {
       try { final token = await _auth.currentUser!.getIdTokenResult().timeout(const Duration(seconds: 6)); adminRole = token.claims?['admin'] == true; } catch (_) { adminRole = false; }
+    }
+    // Tema utama Kalbar Kite menggunakan mode terang.
+    // Migrasi satu kali memastikan instalasi lama yang tersimpan dalam mode
+    // gelap juga kembali ke mode terang setelah pembaruan ini. Pilihan tema
+    // pengguna setelah migrasi tetap dapat diubah melalui tombol tema.
+    final lightModeDefaultApplied = prefs?.getBool('lightModeDefaultAppliedV2') ?? false;
+    if (!lightModeDefaultApplied) {
+      await prefs?.setBool('isDarkMode', false);
+      await prefs?.setBool('lightModeDefaultAppliedV2', true);
     }
     isDarkMode = prefs?.getBool('isDarkMode') ?? false;
     darkMode.value = isDarkMode;
@@ -1383,8 +1658,10 @@ class Store {
     final isVideo = videoPath.isNotEmpty;
     final mediaUrl = isVideo ? await uploadVideo(videoPath, 'stories') :
         (imagePath.isEmpty ? '' : await uploadImage(imagePath, 'stories'));
+    // Masa berlaku dihitung dari waktu unggah, bukan pergantian tanggal.
+    // Story yang diunggah pukul 11.00 akan kedaluwarsa pukul 11.00 esok hari.
     final createdAt = DateTime.now();
-    final expiresAt = createdAt.add(const Duration(hours:24));
+    final expiresAt = createdAt.add(const Duration(hours: 24));
     final data = {
       'ownerUid':user.uid,
       'name':displayName,
@@ -1486,9 +1763,9 @@ class App extends StatelessWidget {
     final accent = dark ? const Color(0xFFE5E5E5) : const Color(0xFF171717);
     // Inter is a clean, highly legible sans-serif with strong bold weights.
     // Rounded Fredoka display paired with Manrope's clean, iOS-like text rhythm.
-    final textFont = GoogleFonts.manrope().fontFamily!;
+    final textFont = GoogleFonts.inter().fontFamily!;
     final displayFont = GoogleFonts.fredoka().fontFamily!;
-    final roundedFont = GoogleFonts.manrope().fontFamily!;
+    final roundedFont = GoogleFonts.inter().fontFamily!;
     final navigationFont = GoogleFonts.fredoka().fontFamily!;
     final baseTextTheme = ThemeData(brightness: brightness).textTheme.apply(
       bodyColor: foreground, displayColor: foreground, fontFamily: textFont,
@@ -1511,7 +1788,8 @@ class App extends StatelessWidget {
       labelSmall: baseTextTheme.labelSmall?.copyWith(fontFamily: roundedFont, fontWeight: FontWeight.w500),
     );
     final scheme = ColorScheme.fromSeed(seedColor: accent, brightness: brightness,
-      primary: accent, secondary: const Color(0xFF5AC8FA), surface: surface, onSurface: foreground);
+      primary: accent, onPrimary: dark ? const Color(0xFF171717) : Colors.white,
+      secondary: const Color(0xFF5AC8FA), surface: surface, onSurface: foreground);
     return ThemeData(
       useMaterial3: true, platform: TargetPlatform.android, brightness: brightness,
       scaffoldBackgroundColor: surface, visualDensity: VisualDensity.standard,
@@ -1551,8 +1829,31 @@ class App extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10))),
       textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: accent, textStyle: TextStyle(fontFamily: roundedFont, fontWeight: FontWeight.w800))),
-      snackBarTheme: SnackBarThemeData(behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: dark
+            ? const Color(0xE6F2F2F7)
+            : const Color(0xE62C2C2E),
+        elevation: 0,
+        insetPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+        contentTextStyle: GoogleFonts.inter(
+          color: dark ? const Color(0xFF17171A) : Colors.white,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+          height: 1.35,
+        ),
+        actionTextColor: dark ? const Color(0xFF17171A) : Colors.white,
+        disabledActionTextColor: dark
+            ? const Color(0xFF55555A)
+            : const Color(0xFFBDBDC2),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: BorderSide(
+            color: Colors.white.withValues(alpha: dark ? .92 : .48),
+            width: 1.15,
+          ),
+        ),
+      ),
       listTileTheme: ListTileThemeData(iconColor: accent,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2)),
@@ -1587,277 +1888,46 @@ class AuthGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (_auth.currentUser == null) return const Login();
-    return const _PostLoginSplash();
+    return Store.isAdmin ? const AdminHome() : const Home();
   }
 }
 
-class _PostLoginSplash extends StatefulWidget {
-  const _PostLoginSplash();
-
-  @override
-  State<_PostLoginSplash> createState() => _PostLoginSplashState();
-}
-
-class _PostLoginSplashState extends State<_PostLoginSplash> {
-  @override
-  void initState() {
-    super.initState();
-    unawaited(_prepareApp());
-  }
-
-  Future<void> _prepareApp() async {
-    final stopwatch = Stopwatch()..start();
-
-    // Data komunitas boleh dimuat di latar belakang, tetapi splash visual dan
-    // audio sepenuhnya berasal dari aset lokal. Tidak ada request Worker/URL.
-    final cloudFuture = Store.loadCloudData()
-        .timeout(const Duration(seconds: 12))
-        .catchError((_) {});
-
-    var audioStarted = false;
-    StreamSubscription<void>? completionSubscription;
-    Future<void>? audioFinished;
-    try {
-      await splashAudioPlayer.stop();
-      await splashAudioPlayer.setReleaseMode(ReleaseMode.stop);
-      final completion = Completer<void>();
-      completionSubscription = splashAudioPlayer.onPlayerComplete.listen((_) {
-        if (!completion.isCompleted) completion.complete();
-      });
-      await splashAudioPlayer.play(
-        AssetSource('audio/Generated Audio November 20, 2026 - 11_04PM.wav'),
-      );
-      audioStarted = true;
-      audioFinished = completion.future
-          .timeout(const Duration(seconds: 15))
-          .catchError((_) {});
-    } catch (_) {
-      // Jika audio gagal, splash tetap lanjut tanpa menghentikan aplikasi.
-    }
-
-    await cloudFuture;
-    if (audioFinished != null) await audioFinished;
-    await completionSubscription?.cancel();
-
-    const splashDuration = Duration(milliseconds: 3200);
-    final remaining = splashDuration - stopwatch.elapsed;
-    if (remaining > Duration.zero) await Future.delayed(remaining);
-    if (!mounted) {
-      if (audioStarted) {
-        try { await splashAudioPlayer.stop(); } catch (_) {}
-      }
-      return;
-    }
-    if (audioStarted) {
-      try { await splashAudioPlayer.stop(); } catch (_) {}
-    }
-    if (_auth.currentUser == null) {
-      Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => const Login()));
-      return;
-    }
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => Store.isAdmin ? const AdminHome() : const Home(),
-    ));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final visual = Store.visualConfig;
-    Color visualColor(dynamic value, Color fallback) {
-      final hex = (value ?? '').toString().replaceFirst('#', '');
-      if (!RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(hex)) return fallback;
-      return Color(0xFF000000 | int.parse(hex, radix: 16));
-    }
-    final primaryColor = visualColor(visual['primaryColor'], const Color(0xFF0878F9));
-    final secondaryColor = visualColor(visual['secondaryColor'], const Color(0xFF55B8F4));
-    final deepColor = Color.lerp(primaryColor, Colors.black, .42)!;
-    final year = DateTime.now().year;
-    final logoUrl = (visual['loginLogoUrl'] ?? '').toString().trim();
-    final title = (visual['brandTitle'] ?? Store.appName).toString();
-    final subtitle = (visual['brandSubtitle'] ?? Store.tagline).toString();
-    final loadingTitle = (visual['loadingTitle'] ?? 'Menyiapkan ruang ceritamu...').toString();
-    final loadingSubtitle = (visual['loadingSubtitle'] ?? '').toString();
-    final copyright = (visual['copyrightText'] ?? '© $year Kalbar Kite • Hak cipta dilindungi').toString();
-
-    return Scaffold(
-      body: Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [deepColor, primaryColor, secondaryColor],
-          ),
-        ),
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: Image.asset(
-                'assets/images/Festival Budaya Katulistiwa di Pontianak.png',
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.high,
-                errorBuilder: (_, __, ___) => DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [deepColor, primaryColor, secondaryColor],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.transparent,
-                      Colors.transparent,
-                    ],
-                    stops: const [0, .48, 1],
-                  ),
-                ),
-              ),
-            ),
-            // Gambar yang diunggah dashboard tampil apa adanya, tanpa ditimpa gradien biru.
-            Positioned(
-              top: -90, right: -65,
-              child: Container(
-                width: 250, height: 250,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: .07),
-                ),
-              ),
-            ),
-            Positioned(
-              bottom: -110, left: -70,
-              child: Container(
-                width: 290, height: 290,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: .06),
-                ),
-              ),
-            ),
-            SafeArea(
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 30),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 94, height: 94,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(30),
-                          boxShadow: const [BoxShadow(
-                            color: Color(0x33051B4A), blurRadius: 28, offset: Offset(0, 12),
-                          )],
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(30),
-                          child: logoUrl.startsWith('https://')
-                            ? Image.network(
-                                logoUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(CupertinoIcons.paperplane_fill, size: 48, color: Color(0xFF0878F9)),
-                              )
-                            : const Icon(CupertinoIcons.paperplane_fill, size: 48, color: Color(0xFF0878F9)),
-                        ),
-                      ),
-                      const SizedBox(height: 22),
-                      Text(title,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.fredoka(fontSize: 36, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: .2)),
-                      const SizedBox(height: 7),
-                      Text(subtitle,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(fontSize: 13, height: 1.5, color: Colors.white.withValues(alpha: .92), fontWeight: FontWeight.w500)),
-                      const SizedBox(height: 42),
-                      const SizedBox(
-                        width: 150,
-                        child: LinearProgressIndicator(
-                          minHeight: 4,
-                          borderRadius: BorderRadius.all(Radius.circular(8)),
-                          backgroundColor: Color(0x55FFFFFF),
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      ),
-                      const SizedBox(height: 15),
-                      Text(
-                        loadingTitle,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.inter(
-                          fontSize: 14,
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          shadows: const [
-                            Shadow(color: Color(0xDD000000), blurRadius: 9, offset: Offset(0, 2)),
-                            Shadow(color: Color(0x99000000), blurRadius: 3, offset: Offset(0, 1)),
-                          ],
-                        ),
-                      ),
-                      if (loadingSubtitle.trim().isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          loadingSubtitle,
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.inter(
-                            fontSize: 12.5,
-                            height: 1.4,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            shadows: const [
-                              Shadow(color: Color(0xDD000000), blurRadius: 9, offset: Offset(0, 2)),
-                              Shadow(color: Color(0x99000000), blurRadius: 3, offset: Offset(0, 1)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            Positioned(
-              left: 20, right: 20, bottom: 18,
-              child: SafeArea(
-                top: false,
-                child: Text(copyright,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(fontSize: 10.5, color: Colors.white.withValues(alpha: .82), fontWeight: FontWeight.w500)),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 class Brand extends StatelessWidget {
   const Brand({super.key});
   @override
-  Widget build(BuildContext context) => Row(mainAxisSize: MainAxisSize.min, children: [
-    Container(width: 34, height: 34, decoration: BoxDecoration(color: pale, borderRadius: BorderRadius.circular(11)), child: const Icon(CupertinoIcons.paperplane_fill, color: Color(0xFF007AFF), size: 20)),
-    const SizedBox(width: 8),
-    Text(Store.appName, style: GoogleFonts.fredoka(fontSize: 21, fontWeight: FontWeight.w700, letterSpacing: -.3, color: Theme.of(context).colorScheme.onSurface)),
-    const SizedBox(width: 5),
-    Transform.translate(
-      offset: const Offset(0, -8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(color: const Color(0xFFE32636), borderRadius: BorderRadius.circular(5)),
-        child: Text('BARU', style: GoogleFonts.fredoka(
-          color: Colors.white, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: .2)),
-      ),
-    ),
-  ]);
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Image.asset(
+          'assets/images/kalbar_kite_header_logo.png',
+          width: 108,
+          height: 56,
+          fit: BoxFit.contain,
+        ),
+        const SizedBox(width: 5),
+        Transform.translate(
+          offset: const Offset(-8, -12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFFE32636),
+              borderRadius: BorderRadius.circular(5),
+            ),
+            child: Text(
+              'BETA',
+              style: GoogleFonts.fredoka(
+                color: Colors.white,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: .2,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class Login extends StatefulWidget {
@@ -1909,7 +1979,7 @@ class _LoginState extends State<Login> {
       Store.currentEmail = credential.user?.email ?? email;
       Store.currentUid = credential.user?.uid ?? '';
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const _PostLoginSplash()), (route) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => Store.isAdmin ? const AdminHome() : const Home()), (route) => false);
     } on FirebaseAuthException catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_authMessage(error.code))));
     } catch (error) {
@@ -1939,7 +2009,7 @@ class _LoginState extends State<Login> {
         await _db.collection('public_profiles').doc(user.uid).set({'uid':user.uid,'name':user.displayName??'Pengguna Kalbar','username':usernameValue,'bio':'','avatarUrl':user.photoURL??'','bannerUrl':''});
       }
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const _PostLoginSplash()), (route) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => Store.isAdmin ? const AdminHome() : const Home()), (route) => false);
     } on FirebaseAuthException catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_authMessage(error.code))));
     } catch (error) {
@@ -1973,7 +2043,7 @@ class _LoginState extends State<Login> {
         Store.memberNames[email] = fullName.text.trim(); Store.usernames[email] = defaultUsername;
       } catch (_) { profileSaved = false; }
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const _PostLoginSplash()), (route) => false);
+      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => Store.isAdmin ? const AdminHome() : const Home()), (route) => false);
       if (!profileSaved) {
         // Akun Firebase Auth sudah berhasil dibuat; profil dapat disinkronkan dari halaman profil.
       }
@@ -1991,7 +2061,7 @@ class _LoginState extends State<Login> {
       statusBarBrightness: Brightness.dark,
     ),
     child: Scaffold(
-    backgroundColor: Colors.white,
+    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
     body: SafeArea(
       top: false,
       child: SingleChildScrollView(
@@ -2007,7 +2077,7 @@ class _LoginState extends State<Login> {
                 Text(
                   registering ? 'Buat Akun' : 'Masuk ke Akun',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.fredoka(fontSize: 34, fontWeight: FontWeight.w600, color: const Color(0xFF111B3A), height: 1.12),
+                  style: GoogleFonts.fredoka(fontSize: 34, fontWeight: FontWeight.w600, color: Theme.of(context).colorScheme.onSurface, height: 1.12),
                 ),
                 const SizedBox(height: 9),
                 Text(
@@ -2015,7 +2085,7 @@ class _LoginState extends State<Login> {
                     ? 'Gabung dengan komunitas Kalimantan Barat.'
                     : 'Masuk untuk berbagi, membaca, dan terhubung dengan komunitas Kalimantan Barat.',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(fontSize: 14, height: 1.45, color: const Color(0xFF667085), fontWeight: FontWeight.w500),
+                  style: GoogleFonts.inter(fontSize: 14, height: 1.45, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 27),
                 if (registering) ...[
@@ -2040,7 +2110,7 @@ class _LoginState extends State<Login> {
                   obscure: hidePassword,
                   suffix: IconButton(
                     onPressed: () => setState(() => hidePassword = !hidePassword),
-                    icon: Icon(hidePassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: const Color(0xFF667085)),
+                    icon: Icon(hidePassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: Theme.of(context).colorScheme.onSurfaceVariant),
                   ),
                   onSubmitted: (_) => registering ? register() : login(),
                 ),
@@ -2054,7 +2124,7 @@ class _LoginState extends State<Login> {
                     obscure: hideConfirmPassword,
                     suffix: IconButton(
                       onPressed: () => setState(() => hideConfirmPassword = !hideConfirmPassword),
-                      icon: Icon(hideConfirmPassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: const Color(0xFF667085)),
+                      icon: Icon(hideConfirmPassword ? CupertinoIcons.eye : CupertinoIcons.eye_slash, color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -2064,8 +2134,8 @@ class _LoginState extends State<Login> {
                     contentPadding: EdgeInsets.zero,
                     controlAffinity: ListTileControlAffinity.leading,
                     dense: true,
-                    activeColor: const Color(0xFF0878F9),
-                    title: Text('Saya setuju dengan ketentuan penggunaan dan kebijakan privasi Kalbar Kite.', style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF596273), height: 1.35)),
+                    activeColor: Theme.of(context).colorScheme.primary,
+                    title: Text('Saya setuju dengan ketentuan penggunaan dan kebijakan privasi Kalbar Kite.', style: GoogleFonts.inter(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.35)),
                   ),
                 ],
                 if (!registering) ...[
@@ -2081,7 +2151,7 @@ class _LoginState extends State<Login> {
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                         ),
                       ),
-                      Text('Ingat saya', style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF596273), fontWeight: FontWeight.w600)),
+                      Text('Ingat saya', style: GoogleFonts.inter(fontSize: 13, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w600)),
                       const Spacer(),
                       TextButton(
                         onPressed: () async {
@@ -2105,7 +2175,7 @@ class _LoginState extends State<Login> {
                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Gagal mengirim reset password: $error')));
                           }
                         },
-                        child: Text('Lupa password?', style: GoogleFonts.fredoka(fontSize: 15, color: const Color(0xFF0878F9), fontWeight: FontWeight.w500)),
+                        child: Text('Lupa password?', style: GoogleFonts.fredoka(fontSize: 15, color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w500)),
                       ),
                     ],
                   ),
@@ -2119,23 +2189,23 @@ class _LoginState extends State<Login> {
                       await login();
                     }),
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF0878F9),
-                      disabledBackgroundColor: const Color(0xFF83B9F5),
-                      foregroundColor: Colors.white,
+                      backgroundColor: Theme.of(context).colorScheme.primary,
+                      disabledBackgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: .45),
+                      foregroundColor: Theme.of(context).colorScheme.onPrimary,
                       elevation: 0,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                     ),
                     child: submitting
-                      ? const SizedBox(width: 21, height: 21, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      ? SizedBox(width: 21, height: 21, child: CircularProgressIndicator(strokeWidth: 2, color: Theme.of(context).colorScheme.onPrimary))
                       : Text(registering ? 'Daftar Sekarang' : 'Masuk Sekarang', style: GoogleFonts.fredoka(fontSize: 21, fontWeight: FontWeight.w600)),
                   ),
                 ),
                 if (!registering) ...[
                   const SizedBox(height: 23),
                   Row(children: [
-                    const Expanded(child: Divider(color: Color(0xFFD9DEE8), thickness: 1)),
-                    Padding(padding: const EdgeInsets.symmetric(horizontal: 15), child: Text('atau', style: GoogleFonts.fredoka(fontSize: 16, color: const Color(0xFF687083)))),
-                    const Expanded(child: Divider(color: Color(0xFFD9DEE8), thickness: 1)),
+                    Expanded(child: Divider(color: Theme.of(context).dividerColor, thickness: 1)),
+                    Padding(padding: const EdgeInsets.symmetric(horizontal: 15), child: Text('atau', style: GoogleFonts.fredoka(fontSize: 16, color: Theme.of(context).colorScheme.onSurfaceVariant))),
+                    Expanded(child: Divider(color: Theme.of(context).dividerColor, thickness: 1)),
                   ]),
                   const SizedBox(height: 17),
                   SizedBox(
@@ -2143,9 +2213,9 @@ class _LoginState extends State<Login> {
                     child: OutlinedButton(
                       onPressed: submitting ? null : signInWithGoogle,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF111B3A),
-                        backgroundColor: Colors.white,
-                        side: const BorderSide(color: Color(0xFFD8DEEA), width: 1.3),
+                        foregroundColor: Theme.of(context).colorScheme.onSurface,
+                        backgroundColor: Theme.of(context).cardColor,
+                        side: BorderSide(color: Theme.of(context).dividerColor, width: 1.3),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
                       ),
                       child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -2175,10 +2245,10 @@ class _LoginState extends State<Login> {
                     }),
                     child: RichText(
                       text: TextSpan(
-                        style: GoogleFonts.fredoka(fontSize: 16, color: const Color(0xFF687083)),
+                        style: GoogleFonts.fredoka(fontSize: 16, color: Theme.of(context).colorScheme.onSurfaceVariant),
                         children: [
                           TextSpan(text: registering ? 'Sudah punya akun? ' : 'Belum punya akun? '),
-                          TextSpan(text: registering ? 'Masuk' : 'Daftar', style: const TextStyle(color: Color(0xFF0878F9), fontWeight: FontWeight.w600)),
+                          TextSpan(text: registering ? 'Masuk' : 'Daftar', style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.w600)),
                         ],
                       ),
                     ),
@@ -2225,7 +2295,7 @@ class _KalbarAuthHeader extends StatelessWidget {
                   fit: BoxFit.cover,
                   filterQuality: FilterQuality.high,
                 ),
-                // Soft white mist at the straight lower edge of the hero image.
+                // Theme-aware fade blends the hero image into the active page surface.
                 Positioned(
                   left: 0,
                   right: 0,
@@ -2237,9 +2307,9 @@ class _KalbarAuthHeader extends StatelessWidget {
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
                         colors: [
-                          Colors.white.withValues(alpha: 0),
-                          Colors.white.withValues(alpha: .22),
-                          Colors.white.withValues(alpha: .78),
+                          Theme.of(context).scaffoldBackgroundColor.withValues(alpha: 0),
+                          Theme.of(context).scaffoldBackgroundColor.withValues(alpha: .38),
+                          Theme.of(context).scaffoldBackgroundColor,
                         ],
                         stops: const [0, .58, 1],
                       ),
@@ -2262,9 +2332,9 @@ class _AuthLabel extends StatelessWidget {
   const _AuthLabel({required this.text, required this.icon});
   @override
   Widget build(BuildContext context) => Row(children: [
-    Icon(icon, color: const Color(0xFF111B3A), size: 22),
+    Icon(icon, color: Theme.of(context).colorScheme.onSurface, size: 22),
     const SizedBox(width: 12),
-    Text(text, style: GoogleFonts.fredoka(fontSize: 16, fontWeight: FontWeight.w500, color: const Color(0xFF111B3A))),
+    Text(text, style: GoogleFonts.fredoka(fontSize: 16, fontWeight: FontWeight.w500, color: Theme.of(context).colorScheme.onSurface)),
   ]);
 }
 class _AuthInput extends StatelessWidget {
@@ -2276,15 +2346,15 @@ class _AuthInput extends StatelessWidget {
   Widget build(BuildContext context) => TextField(
     controller: controller, keyboardType: keyboard, textCapitalization: capitalization,
     obscureText: obscure, onSubmitted: onSubmitted,
-    style: GoogleFonts.inter(fontSize: 15, color: const Color(0xFF111B3A)),
+    style: GoogleFonts.inter(fontSize: 15, color: Theme.of(context).colorScheme.onSurface),
     decoration: InputDecoration(
-      hintText: hint, hintStyle: GoogleFonts.fredoka(fontSize: 15, color: const Color(0xFF8791A3), fontWeight: FontWeight.w400),
+      hintText: hint, hintStyle: GoogleFonts.fredoka(fontSize: 15, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w400),
       prefixIcon: keyboard == TextInputType.emailAddress ? null : null,
-      suffixIcon: suffix, filled: true, fillColor: Colors.white,
+      suffixIcon: suffix, filled: true, fillColor: Theme.of(context).inputDecorationTheme.fillColor ?? Theme.of(context).cardColor,
       contentPadding: const EdgeInsets.symmetric(horizontal: 19, vertical: 18),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Color(0xFFD8DEEA), width: 1.3)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Color(0xFFD8DEEA), width: 1.3)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: const BorderSide(color: Color(0xFF0878F9), width: 1.6)),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Theme.of(context).dividerColor, width: 1.3)),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Theme.of(context).dividerColor, width: 1.3)),
+      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(20), borderSide: BorderSide(color: Theme.of(context).colorScheme.primary, width: 1.6)),
     ),
   );
 }
@@ -2311,22 +2381,30 @@ class _GoogleFourColorPainter extends CustomPainter {
 class _AuthFeatureStrip extends StatelessWidget {
   const _AuthFeatureStrip();
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 9),
-    decoration: BoxDecoration(color: const Color(0xFFF0F6FF), borderRadius: BorderRadius.circular(23)),
-    child: Row(children: const [
-      Expanded(child: _AuthFeature(icon: CupertinoIcons.person_3, title: 'Komunitas', subtitle: 'Lokal', color: Color(0xFF0878F9))),
-      _AuthFeatureDivider(),
-      Expanded(child: _AuthFeature(icon: CupertinoIcons.book, title: 'Cerita &', subtitle: 'Wawasan', color: Color(0xFF0878F9))),
-      _AuthFeatureDivider(),
-      Expanded(child: _AuthFeature(icon: Icons.eco_outlined, title: 'Jaga Warisan', subtitle: 'Kalbar', color: Color(0xFF25A65A))),
-    ]),
-  );
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final accent = theme.colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 9),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: .55),
+        borderRadius: BorderRadius.circular(23),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: .7)),
+      ),
+      child: Row(children: [
+        Expanded(child: _AuthFeature(icon: CupertinoIcons.person_3, title: 'Komunitas', subtitle: 'Lokal', color: accent)),
+        const _AuthFeatureDivider(),
+        Expanded(child: _AuthFeature(icon: CupertinoIcons.book, title: 'Cerita &', subtitle: 'Wawasan', color: accent)),
+        const _AuthFeatureDivider(),
+        Expanded(child: _AuthFeature(icon: Icons.eco_outlined, title: 'Jaga Warisan', subtitle: 'Kalbar', color: const Color(0xFF25A65A))),
+      ]),
+    );
+  }
 }
 class _AuthFeatureDivider extends StatelessWidget {
   const _AuthFeatureDivider();
   @override
-  Widget build(BuildContext context) => Container(width: 1, height: 57, color: const Color(0xFFD7E1F0));
+  Widget build(BuildContext context) => Container(width: 1, height: 57, color: Theme.of(context).dividerColor);
 }
 class _AuthFeature extends StatelessWidget {
   final IconData icon; final String title, subtitle; final Color color;
@@ -2335,8 +2413,8 @@ class _AuthFeature extends StatelessWidget {
   Widget build(BuildContext context) => Column(children: [
     Icon(icon, color: color, size: 27),
     const SizedBox(height: 6),
-    Text(title, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: const Color(0xFF111B3A), fontWeight: FontWeight.w500)),
-    Text(subtitle, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: const Color(0xFF111B3A), fontWeight: FontWeight.w500)),
+    Text(title, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w500)),
+    Text(subtitle, textAlign: TextAlign.center, style: GoogleFonts.fredoka(fontSize: 12.5, color: Theme.of(context).colorScheme.onSurfaceVariant, fontWeight: FontWeight.w500)),
   ]);
 }
 class Home extends StatefulWidget {
@@ -2380,6 +2458,61 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  Widget _chatNavigationIcon({required bool selected}) {
+    final uid = _auth.currentUser?.uid ?? '';
+    final icon = Icon(
+      selected ? CupertinoIcons.chat_bubble_2_fill : CupertinoIcons.chat_bubble_2,
+    );
+    if (uid.isEmpty) return icon;
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _db.collection('chats')
+          .where('participants', arrayContains: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final unreadCount = (snapshot.data?.docs ?? []).where((doc) {
+          final data = doc.data();
+          final lastSenderUid = (data['lastSenderUid'] ?? '').toString();
+          return lastSenderUid.isNotEmpty &&
+              lastSenderUid != uid &&
+              data['lastMessageRead'] != true;
+        }).length;
+        return Stack(
+          clipBehavior: Clip.none,
+          children: [
+            icon,
+            if (unreadCount > 0)
+              Positioned(
+                right: -11,
+                top: -8,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 17, minHeight: 17),
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE53935),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.surface,
+                      width: 1.4,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    unreadCount > 99 ? '99+' : '$unreadCount',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      height: 1.1,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Brand(), actions: [
@@ -2401,12 +2534,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     bottomNavigationBar: _iosBottomBar(context, NavigationBar(
       selectedIndex: tab,
       onDestinationSelected: (v) => setState(() => tab = v),
-      destinations: const [
-        NavigationDestination(icon: Icon(CupertinoIcons.house), selectedIcon: Icon(CupertinoIcons.house_fill), label: 'Home'),
-        NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
-        NavigationDestination(icon: Icon(CupertinoIcons.square_grid_2x2), selectedIcon: Icon(CupertinoIcons.square_grid_2x2_fill), label: 'Posting'),
-        NavigationDestination(icon: Icon(CupertinoIcons.chat_bubble_2), selectedIcon: Icon(CupertinoIcons.chat_bubble_2_fill), label: 'Chat'),
-        NavigationDestination(icon: Icon(CupertinoIcons.person), selectedIcon: Icon(CupertinoIcons.person_fill), label: 'Profile'),
+      destinations: [
+        const NavigationDestination(icon: Icon(CupertinoIcons.house), selectedIcon: Icon(CupertinoIcons.house_fill), label: 'Home'),
+        const NavigationDestination(icon: Icon(CupertinoIcons.info), selectedIcon: Icon(CupertinoIcons.info_circle_fill), label: 'Info'),
+        const NavigationDestination(icon: Icon(CupertinoIcons.square_grid_2x2), selectedIcon: Icon(CupertinoIcons.square_grid_2x2_fill), label: 'Posting'),
+        NavigationDestination(
+          icon: _chatNavigationIcon(selected: false),
+          selectedIcon: _chatNavigationIcon(selected: true),
+          label: 'Chat',
+        ),
+        const NavigationDestination(icon: Icon(CupertinoIcons.person), selectedIcon: Icon(CupertinoIcons.person_fill), label: 'Profile'),
       ],
     )),
   );
@@ -3168,7 +3305,8 @@ class _WelcomeBannerFallback extends StatelessWidget {
 }
 
 class ActivityPage extends StatefulWidget {
-  const ActivityPage({super.key});
+  final String focusPostId;
+  const ActivityPage({super.key, this.focusPostId = ''});
   @override
   State<ActivityPage> createState() => _ActivityPageState();
 }
@@ -3195,6 +3333,11 @@ class _ActivityPageState extends State<ActivityPage> {
   @override
   Widget build(BuildContext context) {
     final posts = Store.activityPosts.toList();
+    final focusIndex = posts.indexWhere((post) => (post['id'] ?? '') == widget.focusPostId);
+    if (focusIndex > 0) {
+      final focusedPost = posts.removeAt(focusIndex);
+      posts.insert(0, focusedPost);
+    }
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
@@ -3396,7 +3539,7 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
       });
       if (shouldAdvance && mounted) {
         if (url.startsWith('https://')) {
-          if (!_videoAutoClosed) { _videoAutoClosed = true; timer?.cancel(); Navigator.of(context).maybePop(); }
+          if (!_videoAutoClosed) { _videoAutoClosed = true; _next(); }
         } else {
           _next();
         }
@@ -3532,6 +3675,7 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
         'emoji': '',
         'createdAt': FieldValue.serverTimestamp(),
       });
+      unawaited(_dispatchSocialNotification(type: 'story_reply', id: storyId, itemId: replyRef.id));
       final ownerUid = story['uid'] ?? '';
       try {
         await _writeStoryInboxMessage(
@@ -3571,6 +3715,7 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
         'emoji': emoji,
         'createdAt': FieldValue.serverTimestamp(),
       });
+      unawaited(_dispatchSocialNotification(type: 'story_reaction', id: storyId, itemId: myUid));
       if (mounted) setState(() => hasReacted = true);
       final ownerUid = story['uid'] ?? '';
       try {
@@ -3692,7 +3837,34 @@ class _StoryViewerPageState extends State<StoryViewerPage> {
                 Center(child: Padding(padding: const EdgeInsets.all(28), child: Text(item['text'] ?? '',
                   textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w800)))),
               Positioned(top: 10, left: 12, right: 12, child: Column(children: [
-                LinearProgressIndicator(value: progress, minHeight: 2, backgroundColor: Colors.white38, color: Colors.white),
+                Row(
+                  children: List.generate(widget.stories.length, (storyIndex) {
+                    final segmentValue = storyIndex < index
+                        ? 1.0
+                        : storyIndex == index
+                            ? progress.clamp(0.0, 1.0)
+                            : 0.0;
+                    return Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(
+                          right: storyIndex == widget.stories.length - 1 ? 0 : 4,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: SizedBox(
+                            height: 3,
+                            child: LinearProgressIndicator(
+                              value: segmentValue,
+                              minHeight: 3,
+                              backgroundColor: Colors.white38,
+                              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                ),
                 const SizedBox(height: 12),
                 Row(children: [
                   CircleAvatar(
@@ -3883,17 +4055,67 @@ class _StoriesStrip extends StatelessWidget {
   const _StoriesStrip({required this.onAdd, required this.onOpen});
   @override
   Widget build(BuildContext context) {
-    return SizedBox(height: 92, child: ListView(scrollDirection: Axis.horizontal, children: [
-      GestureDetector(onTap: onAdd, child: SizedBox(width: 68, child: Column(children: [
-        Stack(children: [_accountAvatar(Store.currentEmail, radius: 34), Positioned(right: 0, bottom: 0, child: Container(width: 19, height: 19, decoration: const BoxDecoration(color: forest, shape: BoxShape.circle), child: const Icon(CupertinoIcons.plus, size: 15, color: Colors.white)))]),
-        const SizedBox(height: 5), const Text('Cerita kamu', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
-      ]))),
-      for (final story in Store.stories) GestureDetector(onTap: () => onOpen(story), child: SizedBox(width: 68, child: Column(children: [
-        Container(padding: const EdgeInsets.all(2), decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: const Color(0xFF2587D8), width: 2)), child: _remoteAvatar(story['avatarUrl'] ?? '', radius: 25,
-              backgroundColor: Colors.white, iconColor: forest)),
-        const SizedBox(height: 5), Text('@${story['username'] ?? 'warga'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
-      ]))),
-    ]));
+    final currentUid = _auth.currentUser?.uid ?? '';
+    final myStories = Store.stories
+        .where((item) => currentUid.isNotEmpty && (item['uid'] ?? '') == currentUid)
+        .toList();
+    final myStory = myStories.isEmpty ? null : myStories.first;
+
+    // Satu lingkaran per akun, bukan satu lingkaran per dokumen story.
+    // Story milik akun sendiri hanya tampil pada slot "Cerita kamu".
+    final seenOwners = <String>{};
+    final otherStories = Store.stories.where((item) {
+      final ownerUid = (item['uid'] ?? '').trim();
+      if (ownerUid.isEmpty || ownerUid == currentUid) return false;
+      return seenOwners.add(ownerUid);
+    }).toList();
+
+    return SizedBox(height: 92, child: ListView(
+      scrollDirection: Axis.horizontal,
+      children: [
+        SizedBox(width: 72, child: Column(children: [
+          Stack(clipBehavior: Clip.none, children: [
+            GestureDetector(
+              onTap: myStory == null ? onAdd : () => onOpen(myStory),
+              child: Container(
+                padding: myStory == null ? EdgeInsets.zero : const EdgeInsets.all(2),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: myStory == null ? null : Border.all(color: const Color(0xFF2587D8), width: 2),
+                ),
+                child: myStory == null
+                    ? _accountAvatar(Store.currentEmail, radius: 31)
+                    : _remoteAvatar(myStory['avatarUrl'] ?? '', radius: 29,
+                        backgroundColor: Colors.white, iconColor: forest),
+              ),
+            ),
+            Positioned(right: -1, bottom: -1, child: GestureDetector(
+              onTap: onAdd,
+              child: Container(
+                width: 21, height: 21,
+                decoration: const BoxDecoration(color: forest, shape: BoxShape.circle),
+                child: const Icon(CupertinoIcons.plus, size: 15, color: Colors.white),
+              ),
+            )),
+          ]),
+          const SizedBox(height: 5),
+          const Text('Cerita kamu', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+        ])),
+        for (final story in otherStories)
+          GestureDetector(onTap: () => onOpen(story), child: SizedBox(width: 72, child: Column(children: [
+            Container(
+              padding: const EdgeInsets.all(2),
+              decoration: BoxDecoration(shape: BoxShape.circle,
+                border: Border.all(color: const Color(0xFF2587D8), width: 2)),
+              child: _remoteAvatar(story['avatarUrl'] ?? '', radius: 29,
+                backgroundColor: Colors.white, iconColor: forest),
+            ),
+            const SizedBox(height: 5),
+            Text('@${story['username'] ?? 'warga'}', maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600)),
+          ]))),
+      ],
+    ));
   }
 }
 class _StoryVideoPlayer extends StatefulWidget {
@@ -4175,6 +4397,7 @@ class _PublicProfilePageState extends State<PublicProfilePage> {
         await ref.delete();
       } else {
         await ref.set({'followerUid':myUid,'followingUid':widget.uid,'createdAt':FieldValue.serverTimestamp()});
+        unawaited(_dispatchSocialNotification(type: 'follow', id: widget.uid, itemId: DateTime.now().microsecondsSinceEpoch.toString()));
       }
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Follow gagal: $e')));
@@ -4411,6 +4634,7 @@ class _PostLikeButton extends StatelessWidget {
                   await mine.delete();
                 } else {
                   await mine.set({'uid':uid,'createdAt':FieldValue.serverTimestamp()});
+                  unawaited(_dispatchSocialNotification(type: 'like', id: postId, itemId: DateTime.now().microsecondsSinceEpoch.toString()));
                 }
               } catch (error) {
                 if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
@@ -4749,6 +4973,7 @@ class _ActivityCommentsPageState extends State<ActivityCommentsPage> {
     });
     post!['comments'] = jsonEncode(updated);
     await Store.updateActivityPost(post!);
+    unawaited(_dispatchSocialNotification(type: 'comment', id: post!['id'] ?? '', itemId: (updated.last['date'] ?? '').toString()));
     controller.clear();
     if (mounted) setState(() {});
   }
@@ -5008,7 +5233,7 @@ class HomePage extends StatelessWidget {
               Expanded(child: _service(context, title: 'Layanan Publik', subtitle: 'Informasi layanan Kalbar',
                 icon: Icons.account_balance_outlined, start: mint, end: dark ? const Color(0xFF303238) : const Color(0xFFF0F1F3),
                 accent: dark ? const Color(0xFF80D8C3) : const Color(0xFF328F7B),
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage())))),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RandomPage())))),
             ])),
           ]),
         ),
@@ -5132,7 +5357,27 @@ class _UpcomingAgendaPreview extends StatelessWidget {
   final bool compact;
   const _UpcomingAgendaPreview({this.compact = false});
   @override Widget build(BuildContext context){
-    final events=Store.eventPosts.where((e)=>e['status']=='published').toList()..sort((a,b)=>(DateTime.tryParse(a['scheduledAt']??'')??DateTime(2100)).compareTo(DateTime.tryParse(b['scheduledAt']??'')??DateTime(2100)));
+    // HomePage is kept alive inside an IndexedStack. Listen for the cloud-data
+    // revision so this preview rebuilds after admin_events finishes loading.
+    return ValueListenableBuilder<int>(
+      valueListenable: Store.appConfigRevision,
+      builder: (context, revision, _) => _buildPreview(context),
+    );
+  }
+
+  Widget _buildPreview(BuildContext context){
+    final events=Store.eventPosts
+      .where((e)=>(e['status']??'published').trim().toLowerCase()=='published')
+      .toList()
+      ..sort((a,b){
+        final da=DateTime.tryParse(a['scheduledAt']??'')??Store._legacyEventDate(KalbarEvent(
+          a['title']??'',a['date']??'',a['time']??'',a['location']??'',a['description']??'',
+        ))??DateTime(2100);
+        final db=DateTime.tryParse(b['scheduledAt']??'')??Store._legacyEventDate(KalbarEvent(
+          b['title']??'',b['date']??'',b['time']??'',b['location']??'',b['description']??'',
+        ))??DateTime(2100);
+        return da.compareTo(db);
+      });
     final event=events.isEmpty?null:events.first;
     if (compact) {
       final theme = Theme.of(context);
@@ -5742,70 +5987,84 @@ class RandomPage extends StatelessWidget {
     required VoidCallback onTap,
   }) {
     final theme = Theme.of(context);
-    final hasImage = imageUrl.startsWith('https://');
+    final isQuran = icon == CupertinoIcons.moon_stars_fill;
+    // Prefer admin-configured images; fall back to a relevant Wikimedia Commons photo.
+    final effectiveImageUrl = imageUrl.trim().isNotEmpty
+        ? imageUrl.trim()
+        : isQuran
+            ? 'https://commons.wikimedia.org/wiki/Special:FilePath/Islamic%20geometric%20patterns.jpg'
+            : 'https://commons.wikimedia.org/wiki/Special:FilePath/Tarian_dan_pakaian_khas_kalimantan.jpg';
+    final accent = isQuran ? const Color(0xFF56B6A5) : const Color(0xFF8B9BE8);
     return Material(
-      color: theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(15),
-        side: BorderSide(color: theme.dividerColor.withValues(alpha: .9), width: 1.1),
-      ),
+      color: theme.colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(22),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Expanded(
-              flex: 7,
-              child: hasImage
-                  ? CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      placeholder: (_, __) => const ColoredBox(
-                        color: Color(0xFFF1F3F5),
-                        child: Center(child: Icon(CupertinoIcons.photo, size: 34, color: Color(0xFF8795A3))),
-                      ),
-                      errorWidget: (_, __, ___) => const ColoredBox(
-                        color: Color(0xFFF1F3F5),
-                        child: Center(child: Icon(CupertinoIcons.photo, size: 34, color: Color(0xFF8795A3))),
-                      ),
-                    )
-                  : const ColoredBox(
-                      color: Color(0xFFF1F3F5),
-                      child: Center(child: Icon(CupertinoIcons.photo, size: 34, color: Color(0xFF8795A3))),
-                    ),
-            ),
-            Expanded(
-              flex: 3,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: Icon(icon, color: theme.colorScheme.onSurfaceVariant, size: 23),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.fredoka(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
-                    ),
-                  ],
+            CachedNetworkImage(
+              imageUrl: effectiveImageUrl,
+              fit: BoxFit.cover,
+              placeholder: (_, __) => DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [accent.withValues(alpha: .45), theme.colorScheme.surfaceContainerHighest],
+                  ),
                 ),
+              ),
+              errorWidget: (_, __, ___) => DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [accent.withValues(alpha: .45), theme.colorScheme.surfaceContainerHighest],
+                  ),
+                ),
+                child: Center(child: Icon(icon, size: 66, color: accent)),
+              ),
+            ),
+            const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                  colors: [Color(0x22000000), Color(0x08000000), Color(0xD9000000)],
+                  stops: [0, .42, 1],
+                ),
+              ),
+            ),
+            Positioned(
+              top: 14, left: 14,
+              child: Container(
+                width: 48, height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .42),
+                  borderRadius: BorderRadius.circular(15),
+                  border: Border.all(color: Colors.white.withValues(alpha: .24)),
+                ),
+                child: Icon(icon, color: Colors.white, size: 26),
+              ),
+            ),
+            Positioned(
+              top: 22, right: 15,
+              child: Icon(CupertinoIcons.arrow_up_right, color: Colors.white.withValues(alpha: .95), size: 21),
+            ),
+            Positioned(
+              left: 15, right: 15, bottom: 16,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(title, maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.fredoka(fontSize: 19, fontWeight: FontWeight.w700,
+                      color: Colors.white, shadows: const [Shadow(color: Colors.black54, blurRadius: 8)])),
+                  const SizedBox(height: 4),
+                  Text(isQuran ? 'Bacaan dan panduan Islami' : 'Pantun dan budaya Kalimantan Barat',
+                    maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.inter(fontSize: 11.5, height: 1.35,
+                      color: Colors.white.withValues(alpha: .9))),
+                ],
               ),
             ),
           ],
@@ -5858,7 +6117,7 @@ class RandomPage extends StatelessWidget {
             crossAxisCount: 2,
             crossAxisSpacing: 12,
             mainAxisSpacing: 12,
-            childAspectRatio: .80,
+            childAspectRatio: 1.02,
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             children: [
@@ -6430,14 +6689,14 @@ class _QuranPageState extends State<QuranPage> {
     final muted = dark ? Colors.white70 : const Color(0xFF686868);
     final line = dark ? const Color(0xFF3A3A3A) : const Color(0xFFE5E5E5);
     return BackPage(title: 'Islami', child: Column(children: [
-      Padding(padding: const EdgeInsets.fromLTRB(16, 14, 16, 10), child: TextField(
+      Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 7), child: TextField(
         controller: search, onChanged: (_) => setState(() {}),
         style: GoogleFonts.fredoka(color: ink, fontSize: 15),
         decoration: InputDecoration(
           prefixIcon: Icon(CupertinoIcons.search, color: muted),
           hintText: 'Cari surah...', hintStyle: GoogleFonts.fredoka(color: muted, fontSize: 15),
           filled: true, fillColor: dark ? const Color(0xFF202020) : const Color(0xFFF7F7F7),
-          contentPadding: const EdgeInsets.symmetric(vertical: 15),
+          contentPadding: const EdgeInsets.symmetric(vertical: 11),
           enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: line)),
           focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: ink, width: 1.2)),
         ),
@@ -6452,28 +6711,28 @@ class _QuranPageState extends State<QuranPage> {
                 label: Text('Coba lagi', style: TextStyle(color: ink))),
             ])))
           : RefreshIndicator(color: ink, onRefresh: _load, child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(14, 4, 14, 18),
+              padding: const EdgeInsets.fromLTRB(12, 2, 12, 12),
               itemCount: shown.length,
               itemBuilder: (context, i) {
                 final surah = shown[i] as Map<String, dynamic>;
                 return Card(
                   elevation: 0, color: dark ? const Color(0xFF1D1D1D) : Colors.white,
-                  margin: const EdgeInsets.only(bottom: 9),
+                  margin: const EdgeInsets.only(bottom: 6),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13), side: BorderSide(color: line)),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4),
                     leading: Container(
-                      width: 44, height: 44,
+                      width: 36, height: 36,
                       decoration: BoxDecoration(
                         color: dark ? const Color(0xFF353535) : const Color(0xFFF0F0F0),
                         borderRadius: BorderRadius.circular(12)),
                       child: Center(child: Text(surah['nomor'].toString(),
-                        style: GoogleFonts.fredoka(color: ink, fontWeight: FontWeight.w700, fontSize: 16))),
+                        style: GoogleFonts.inter(color: ink, fontWeight: FontWeight.w700, fontSize: 13))),
                     ),
                     title: Text(surah['namaLatin']?.toString() ?? '',
-                      style: GoogleFonts.fredoka(fontWeight: FontWeight.w700, fontSize: 16, color: ink)),
+                      style: GoogleFonts.fredoka(fontWeight: FontWeight.w700, fontSize: 14, color: ink)),
                     subtitle: Text((surah['tempatTurun'] ?? '').toString() + ' • ' + (surah['arti'] ?? '').toString(),
-                      style: GoogleFonts.fredoka(color: muted, fontSize: 13)),
+                      style: GoogleFonts.inter(color: muted, fontSize: 11.5)),
                     trailing: Icon(CupertinoIcons.chevron_right, color: ink),
                     onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => QuranDetailPage(
                       surahNumber: int.tryParse(surah['nomor'].toString()) ?? 1,
@@ -6563,36 +6822,95 @@ class _QuranDetailPageState extends State<QuranDetailPage> {
         : error != null
           ? Center(child: Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [Text(error!), FilledButton(onPressed: _load, child: const Text('Coba lagi'))])))
           : ListView(padding: const EdgeInsets.all(15), children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: pale, borderRadius: BorderRadius.circular(9), border: Border.all(color: Theme.of(context).dividerColor)),
-                child: Column(children: [
-                  Text(surah?['nama']?.toString() ?? '', style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 5),
-                  Text((surah?['namaLatin'] ?? widget.title).toString() + ' • ' + (surah?['jumlahAyat'] ?? verses.length).toString() + ' ayat'),
-                  const SizedBox(height: 12),
-                  FilledButton.icon(onPressed: fullAudio == null ? null : () => _play(fullAudio), icon: Icon(playing ? Icons.graphic_eq : CupertinoIcons.play_arrow_solid), label: const Text('Putar audio surah lengkap')),
-                ]),
-              ),
-              const SizedBox(height: 12),
+              Builder(builder: (context) {
+                final theme = Theme.of(context);
+                final dark = theme.brightness == Brightness.dark;
+                final ink = theme.colorScheme.onSurface;
+                final muted = theme.colorScheme.onSurfaceVariant;
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(13, 10, 13, 11),
+                  decoration: BoxDecoration(
+                    color: dark ? const Color(0xFF1C1C1E) : const Color(0xFFF5F5F7),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: theme.dividerColor.withValues(alpha: .45), width: .7),
+                  ),
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                    Text(surah?['nama']?.toString() ?? '',
+                      style: GoogleFonts.amiri(fontSize: 23, color: ink, height: 1.45)),
+                    const SizedBox(height: 1),
+                    Text(
+                      (surah?['namaLatin'] ?? widget.title).toString() + ' • ' + (surah?['jumlahAyat'] ?? verses.length).toString() + ' ayat',
+                      style: GoogleFonts.inter(fontSize: 11.5, color: muted, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: fullAudio == null ? null : () => _play(fullAudio),
+                      icon: Icon(playing ? Icons.graphic_eq : CupertinoIcons.play_arrow_solid, size: 16),
+                      label: Text(playing ? 'Sedang diputar' : 'Putar audio surah'),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(0, 34),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                        backgroundColor: const Color(0xFF285C4B),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFF343A38),
+                        disabledForegroundColor: Colors.white70,
+                        textStyle: GoogleFonts.inter(fontSize: 11.5, fontWeight: FontWeight.w700),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                  ]),
+                );
+              }),
+              const SizedBox(height: 8),
               ...verses.map((v) {
                 final verse = v as Map<String, dynamic>;
                 final audio = (verse['audio'] as Map?)?['05']?.toString();
                 return Card(
-                  elevation: 0, margin: const EdgeInsets.only(bottom: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8), side: BorderSide(color: Theme.of(context).dividerColor)),
-                  child: Padding(padding: const EdgeInsets.all(15), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  elevation: 0, margin: const EdgeInsets.only(bottom: 7),
+                  color: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF1C1C1E) : const Color(0xFFF8F8FA),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13), side: BorderSide(color: Theme.of(context).dividerColor.withValues(alpha: .5), width: .7)),
+                  child: Padding(padding: const EdgeInsets.fromLTRB(12, 9, 12, 11), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     Row(children: [
-                      CircleAvatar(radius: 16, backgroundColor: pale, child: Text(verse['nomorAyat'].toString(), style: const TextStyle(color: forest, fontWeight: FontWeight.w800))),
+                      CircleAvatar(
+                        radius: 13,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        child: Text(verse['nomorAyat'].toString(),
+                          style: GoogleFonts.inter(fontSize: 10.5, color: Theme.of(context).colorScheme.onSurface, fontWeight: FontWeight.w700)),
+                      ),
                       const Spacer(),
-                      IconButton(tooltip: 'Putar ayat', onPressed: audio == null ? null : () => _play(audio), icon: const Icon(Icons.play_circle_outline, color: forest)),
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        constraints: const BoxConstraints(minWidth: 34, minHeight: 34),
+                        padding: EdgeInsets.zero,
+                        tooltip: 'Putar ayat',
+                        onPressed: audio == null ? null : () => _play(audio),
+                        icon: Icon(Icons.play_circle_outline, color: Theme.of(context).colorScheme.onSurfaceVariant, size: 19),
+                      ),
                     ]),
-                    const SizedBox(height: 12),
-                    Text(verse['teksArab']?.toString() ?? '', textAlign: TextAlign.right, style: const TextStyle(fontSize: 26, height: 1.9, fontWeight: FontWeight.w500)),
-                    const SizedBox(height: 8),
-                    Text(verse['teksLatin']?.toString() ?? '', style: const TextStyle(color: forest, fontStyle: FontStyle.italic, height: 1.5)),
-                    const SizedBox(height: 7),
-                    Text(verse['teksIndonesia']?.toString() ?? '', style: const TextStyle(height: 1.5)),
+                    const SizedBox(height: 5),
+                    Text(
+                      verse['teksArab']?.toString() ?? '',
+                      textAlign: TextAlign.right,
+                      style: GoogleFonts.amiri(
+                        fontSize: 23,
+                        height: 1.7,
+                        fontWeight: FontWeight.w500,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      verse['teksLatin']?.toString() ?? '',
+                      style: GoogleFonts.inter(fontSize: 11.5, color: Theme.of(context).colorScheme.onSurfaceVariant, fontStyle: FontStyle.italic, height: 1.4),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      verse['teksIndonesia']?.toString() ?? '',
+                      style: GoogleFonts.inter(fontSize: 12.5, height: 1.45, color: Theme.of(context).colorScheme.onSurface),
+                    ),
                   ])),
                 );
               }),
@@ -7892,7 +8210,7 @@ class _DictionaryPageState extends State<DictionaryPage> {
             fontWeight: FontWeight.w600, color: theme.colorScheme.onSurface)),
           const SizedBox(height: 3),
           Text('${item['language'] ?? 'Daerah'} • ${item['meaning'] ?? ''}',
-            style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
+            style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w400, color: theme.colorScheme.onSurfaceVariant)),
         ])),
         IconButton(
           tooltip: favorite ? 'Hapus dari favorit' : 'Tambah ke favorit',
@@ -8044,7 +8362,8 @@ class _InfoTimelineItem extends StatelessWidget {
                 ),
               ),
             const SizedBox(height: 14),
-            Text(_body, style: GoogleFonts.inter(fontSize: 15, height: 1.6,
+            Text(_body, style: GoogleFonts.nunitoSans(
+              fontSize: 15, height: 1.65, fontWeight: FontWeight.w500,
               color: theme.colorScheme.onSurface)),
           ],
         ),
@@ -8710,8 +9029,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     Expanded(
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: forest,
-                          side: const BorderSide(color: forest, width: 1.4),
+                          foregroundColor: Theme.of(dialogContext).colorScheme.onSurface,
+                          side: BorderSide(color: Theme.of(dialogContext).dividerColor, width: 1.4),
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -8725,8 +9044,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     Expanded(
                       child: FilledButton(
                         style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFF2B8BE),
-                          foregroundColor: const Color(0xFF8F303B),
+                          backgroundColor: Theme.of(dialogContext).brightness == Brightness.dark ? const Color(0xFF542C34) : const Color(0xFFF2B8BE),
+                          foregroundColor: Theme.of(dialogContext).brightness == Brightness.dark ? const Color(0xFFFFC1C8) : const Color(0xFF8F303B),
                           minimumSize: const Size.fromHeight(48),
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -8822,8 +9141,6 @@ class _ProfilePageState extends State<ProfilePage> {
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactPage()))),
           _profileTile(Icons.shield_outlined, 'Privasi & Kebijakan', 'Ringkasan pengelolaan data pengguna',
             () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PrivacyPolicyPage()))),
-          _profileTile(Icons.verified_outlined, 'Versi aplikasi', 'Kalbar Kite • Versi 1.0.0', null,
-            showDivider: false, showArrow: false),
         ]),
         const SizedBox(height: 16),
         SizedBox(width: double.infinity, child: FilledButton.icon(
@@ -8839,18 +9156,19 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
         )),
         const SizedBox(height: 28),
-        Center(child: Column(children: [
-          Container(width: 76, height: 76,
-            decoration: const BoxDecoration(color: pale, shape: BoxShape.circle),
-            child: const Icon(Icons.send_rounded, color: forest, size: 36)),
-          const SizedBox(height: 12),
-          Text('Kalbar Kite • Versi 1.0.0',
-            style: GoogleFonts.fredoka(fontSize: 19, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
-          const SizedBox(height: 5),
-          Text('Budaya, cerita, dan kepedulian Kalimantan Barat.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.inter(fontSize: 13, color: theme.colorScheme.onSurfaceVariant)),
-        ])),
+         Center(child: Column(children: [
+           SvgPicture.asset(
+             'assets/images/kalbar_kite_app_icon.svg',
+             width: 108,
+             height: 80,
+             fit: BoxFit.contain,
+           ),
+           const SizedBox(height: 8),
+           Text('Budaya, cerita, dan kepedulian Kalimantan Barat.',
+             textAlign: TextAlign.center,
+             style: GoogleFonts.fredoka(fontSize: 15, fontWeight: FontWeight.w600,
+               color: theme.colorScheme.onSurfaceVariant)),
+         ])),
       ],
     ));
   }
@@ -8900,8 +9218,8 @@ class _ProfilePageState extends State<ProfilePage> {
         title: Text(title, style: GoogleFonts.fredoka(fontSize: 16,
           fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface)),
         subtitle: Text(subtitle, maxLines: 2, overflow: TextOverflow.ellipsis,
-          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500,
-            color: theme.colorScheme.onSurfaceVariant)),
+          style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w500,
+            height: 1.25, color: theme.colorScheme.onSurfaceVariant)),
         trailing: showArrow ? Icon(CupertinoIcons.chevron_right, size: 18,
           color: theme.colorScheme.onSurfaceVariant) : null,
       ),
@@ -9574,59 +9892,263 @@ class ProfileItem extends StatelessWidget {
   Widget build(BuildContext context) => Card(elevation: 0, child: ListTile(onTap: onTap, leading: Icon(icon, color: forest), title: Text(title), subtitle: Text(subtitle), trailing: const Icon(CupertinoIcons.chevron_right)));
 }
 
-class BroadcastNotificationsPage extends StatelessWidget {
+class BroadcastNotificationsPage extends StatefulWidget {
   const BroadcastNotificationsPage({super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Notifikasi Kalbar Kite')),
-    body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+  State<BroadcastNotificationsPage> createState() => _BroadcastNotificationsPageState();
+}
+
+class _BroadcastNotificationsPageState extends State<BroadcastNotificationsPage> {
+  int _selectedTab = 0;
+
+  String _formatNotificationDate(dynamic value) {
+    DateTime? date;
+    if (value is Timestamp) date = value.toDate().toLocal();
+    else if (value is DateTime) date = value.toLocal();
+    else if (value is String) date = DateTime.tryParse(value)?.toLocal();
+    if (date == null) return '';
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} • ${date.hour.toString().padLeft(2, '0')}.${date.minute.toString().padLeft(2, '0')}';
+  }
+
+  Widget _tabButton(String title, IconData icon, int index) {
+    final selected = _selectedTab == index;
+    final colors = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Material(
+        color: selected ? colors.surfaceContainerHighest : colors.surface,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => _selectedTab = index),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 7),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: selected ? colors.surfaceContainerHighest : colors.outlineVariant),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: 18, color: colors.onSurface),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    title,
+                    maxLines: 2,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 11.5,
+                      fontFamily: GoogleFonts.inter().fontFamily,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _emptyState(String message) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(28),
+      child: Text(message, textAlign: TextAlign.center,
+        style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+    ),
+  );
+
+  Widget _buildApplicationNotifications() {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _db.collection('notifications').where('status', isEqualTo: 'sent').snapshots(),
       builder: (context, snapshot) {
-        if (snapshot.hasError) return Center(child: Text('Notifikasi belum dapat dimuat: ${snapshot.error}'));
+        if (snapshot.hasError) return _emptyState('Notifikasi aplikasi belum dapat dimuat: ${snapshot.error}');
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
         final docs = snapshot.data!.docs.toList()
-          ..sort((a,b) {
-            final at = a.data()['createdAt'];
-            final bt = b.data()['createdAt'];
-            final av = at is Timestamp ? at.millisecondsSinceEpoch : 0;
-            final bv = bt is Timestamp ? bt.millisecondsSinceEpoch : 0;
-            return bv.compareTo(av);
+          ..sort((a, b) {
+            final av = a.data()['createdAt'];
+            final bv = b.data()['createdAt'];
+            final at = av is Timestamp ? av.millisecondsSinceEpoch : DateTime.tryParse('$av')?.millisecondsSinceEpoch ?? 0;
+            final bt = bv is Timestamp ? bv.millisecondsSinceEpoch : DateTime.tryParse('$bv')?.millisecondsSinceEpoch ?? 0;
+            return bt.compareTo(at);
           });
-        if (docs.isEmpty) {
-          return const Center(
-            child: Padding(
-              padding: EdgeInsets.all(28),
-              child: Text('Belum ada pengumuman dari admin.', textAlign: TextAlign.center),
-            ),
-          );
-        }
+        if (docs.isEmpty) return _emptyState('Belum ada notifikasi aplikasi.');
         return ListView.separated(
-          padding: const EdgeInsets.all(16), itemCount: docs.length,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+          itemCount: docs.length,
           separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (context, index) {
             final data = docs[index].data();
             final image = _normalizeImageUrl((data['imageUrl'] ?? '').toString());
-            final stamp = data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate().toLocal() : null;
-            return Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text((data['title'] ?? 'Kalbar Kite').toString(),
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-                if (stamp != null) Padding(padding: const EdgeInsets.only(top: 3),
-                  child: Text('${stamp.day}/${stamp.month}/${stamp.year} • ${stamp.hour.toString().padLeft(2,'0')}.${stamp.minute.toString().padLeft(2,'0')}',
-                    style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant))),
-                if (image.startsWith('https://')) ...[
-                  const SizedBox(height: 10),
-                  ClipRRect(borderRadius: BorderRadius.circular(12),
-                    child: Image.network(image, width: double.infinity, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink())),
-                ],
-                const SizedBox(height: 8),
-                Text((data['body'] ?? '').toString(), style: const TextStyle(height: 1.45)),
-              ],
-            )));
+            final stamp = _formatNotificationDate(data['createdAt']);
+            return Card(
+              elevation: 0,
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .55)),
+              ),
+              child: InkWell(
+                onTap: () => _handleNotificationData(Map<String, dynamic>.from(data)),
+                child: Padding(
+                  padding: const EdgeInsets.all(15),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text((data['title'] ?? 'Kalbar Kite').toString(),
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+                      if (stamp.isNotEmpty) Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(stamp, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                      ),
+                      if (image.startsWith('https://')) ...[
+                        const SizedBox(height: 11),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(13),
+                          child: Image.network(image, width: double.infinity, fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text((data['body'] ?? '').toString(), style: const TextStyle(height: 1.45)),
+                    ],
+                  ),
+                ),
+              ),
+            );
           },
         );
       },
+    );
+  }
+
+  Future<void> _openActivityNotification(QueryDocumentSnapshot<Map<String, dynamic>> doc) async {
+    final data = Map<String, dynamic>.from(doc.data());
+    try {
+      if (data['read'] != true) await doc.reference.update({'read': true});
+    } catch (error) {
+      debugPrint('Status baca notifikasi gagal diperbarui: $error');
+    }
+    if (!mounted) return;
+    final event = (data['event'] ?? '').toString();
+    final routeType = (data['routeType'] ?? '').toString();
+    data['routeType'] = routeType.isNotEmpty
+        ? routeType
+        : event == 'chat' ? 'chat'
+        : event == 'follow' || event == 'like' || event == 'comment' ? 'profile'
+        : event == 'story_reply' || event == 'story_reaction' ? 'story'
+        : 'activity';
+    data['targetId'] ??= (event == 'follow' || event == 'like' || event == 'comment')
+        ? data['actorUid'] ?? ''
+        : data['id'] ?? '';
+    data['routeValue'] ??= data['targetId'];
+    _handleNotificationData(data);
+  }
+
+  Widget _buildActivityNotifications() {
+    final uid = _auth.currentUser?.uid ?? '';
+    if (uid.isEmpty) return _emptyState('Silakan masuk untuk melihat notifikasi aktivitas.');
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: _db.collection('user_notifications')
+          .where('receiverUid', isEqualTo: uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _emptyState('Notifikasi aktivitas belum dapat dimuat: ${snapshot.error}');
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final docs = snapshot.data!.docs.toList()
+          ..sort((a, b) {
+            final av = a.data()['createdAt'];
+            final bv = b.data()['createdAt'];
+            final at = av is Timestamp ? av.millisecondsSinceEpoch : DateTime.tryParse('$av')?.millisecondsSinceEpoch ?? 0;
+            final bt = bv is Timestamp ? bv.millisecondsSinceEpoch : DateTime.tryParse('$bv')?.millisecondsSinceEpoch ?? 0;
+            return bt.compareTo(at);
+          });
+        if (docs.isEmpty) return _emptyState('Belum ada notifikasi aktivitas.');
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 10),
+          itemBuilder: (context, index) {
+            final doc = docs[index];
+            final data = doc.data();
+            final actorName = (data['actorName'] ?? 'Pengguna Kalbar Kite').toString();
+            final body = (data['body'] ?? 'Ada aktivitas baru untukmu.').toString();
+            final stamp = _formatNotificationDate(data['createdAt']);
+            final avatar = _normalizeImageUrl((data['avatarUrl'] ?? '').toString());
+            final unread = data['read'] != true;
+            return Card(
+              elevation: 0,
+              clipBehavior: Clip.antiAlias,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+                side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: .55)),
+              ),
+              child: InkWell(
+                onTap: () => _openActivityNotification(doc),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 23,
+                        backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
+                        backgroundImage: avatar.startsWith('https://') ? NetworkImage(avatar) : null,
+                        child: avatar.startsWith('https://') ? null : const Icon(CupertinoIcons.person_fill),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(actorName, style: TextStyle(fontSize: 15, fontWeight: unread ? FontWeight.w800 : FontWeight.w600)),
+                            if (stamp.isNotEmpty) Padding(
+                              padding: const EdgeInsets.only(top: 3),
+                              child: Text(stamp, style: TextStyle(fontSize: 11, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+                            ),
+                            const SizedBox(height: 7),
+                            Text(body, style: TextStyle(height: 1.4, fontWeight: unread ? FontWeight.w600 : FontWeight.w400)),
+                          ],
+                        ),
+                      ),
+                      if (unread) Container(
+                        width: 9, height: 9, margin: const EdgeInsets.only(top: 6, left: 8),
+                        decoration: const BoxDecoration(color: Color(0xFF20A66A), shape: BoxShape.circle),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(
+      leading: const BackButton(),
+      title: const Text('Notifikasi Kalbar Kite'),
+    ),
+    body: Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
+          child: Row(
+            children: [
+              _tabButton('Notifikasi Aplikasi', CupertinoIcons.device_phone_portrait, 0),
+              const SizedBox(width: 10),
+              _tabButton('Notifikasi Aktivitas', CupertinoIcons.bell, 1),
+            ],
+          ),
+        ),
+        Expanded(child: _selectedTab == 0 ? _buildApplicationNotifications() : _buildActivityNotifications()),
+      ],
     ),
   );
 }
@@ -9671,21 +10193,48 @@ class _AdminNotificationsPageState extends State<AdminNotificationsPage> {
     }
     setState(() => _sending = true);
     try {
+      final user = _auth.currentUser;
+      if (user == null) throw Exception('Sesi admin berakhir. Silakan login ulang.');
       var imageUrl = _imageUrl;
       if (_localImage.isNotEmpty) imageUrl = await Store.uploadImage(_localImage, 'notifications');
-      await _db.collection('notifications').add({
-        'title': title, 'body': body, 'imageUrl': imageUrl,
-        'routeType': _routeType == 'dashboard_info' ? 'info' : _routeType,
-        'routeValue': _routeType == 'dashboard_info' ? 'dashboard' : (_routeType == 'url' ? target : ''),
-        'audience': 'all', 'status': 'queued',
-        'createdBy': _auth.currentUser?.uid ?? '',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      final idToken = await user.getIdToken();
+      if (idToken == null || idToken.isEmpty) throw Exception('Token autentikasi tidak tersedia. Silakan login ulang.');
+      // Kirim langsung melalui endpoint FCM yang juga digunakan website admin.
+      // Menulis dokumen berstatus queued saja tidak mengirim push ke perangkat.
+      final response = await http.post(
+        Uri.parse('https://kalbarkite.dcxcomunity.my.id/api/send-notification'),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({'title': title, 'body': body, 'imageUrl': imageUrl}),
+      ).timeout(const Duration(seconds: 35));
+      Map<String, dynamic> result = {};
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map) result = Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+      if (response.statusCode < 200 || response.statusCode >= 300 || result['ok'] != true) {
+        final detail = (result['error'] ?? (result['errors'] is List ? (result['errors'] as List).join(' | ') : '')).toString();
+        throw Exception(detail.isNotEmpty ? detail : 'Server FCM menolak pengiriman (HTTP ${response.statusCode}).');
+      }
+      final sent = (result['sent'] as num?)?.toInt() ?? 0;
+      final failed = (result['failed'] as num?)?.toInt() ?? 0;
+      if (sent < 1) {
+        final errors = result['errors'] is List ? (result['errors'] as List).join(' | ') : '';
+        throw Exception(errors.isNotEmpty ? errors : 'Belum ada perangkat yang menerima permintaan FCM.');
+      }
       _title.clear(); _body.clear(); _url.clear();
       setState(() { _imageUrl = ''; _localImage = ''; _routeType = 'none'; });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifikasi masuk antrean pengiriman.')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 8),
+          content: Text('FCM menerima pengiriman ke $sent perangkat. Gagal: $failed. Ini konfirmasi server, bukan tanda notifikasi sudah tampil di layar.'),
+        ));
+      }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Notifikasi gagal dibuat: $error')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Notifikasi gagal dikirim: ${error.toString().replaceFirst('Exception: ', '')}')));
     } finally { if (mounted) setState(() => _sending = false); }
   }
 
